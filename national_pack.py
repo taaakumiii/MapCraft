@@ -26,7 +26,7 @@ def install_pack(root,config):
                          'CREATE TABLE IF NOT EXISTS rendered(tx INTEGER,tz INTEGER,PRIMARY KEY(tx,tz));')
     ref=MapReference(config['map_id'],tuple(config['bbox']),config['scale'],1,1,projection='national_mercator',origin=tuple(config['origin']),
         treasure_enabled=config['treasure']['enabled'],treasure_probability=config['treasure']['probability'],
-        beds_enabled=config.get('beds',{}).get('enabled',True),beds_probability=config.get('beds',{}).get('probability',.25))
+        beds_enabled=config.get('beds',{}).get('enabled',True),beds_probability=config.get('beds',{}).get('probability',.25),furniture_baked=config.get('furniture_baked',False))
     scripts=bp/'scripts';scripts.mkdir(exist_ok=True)
     regions=scripts/'regions';regions.mkdir(exist_ok=True);region_keys=[]
     with connect(config['index']) as source,connect(root/'queue.sqlite') as queue:
@@ -45,8 +45,10 @@ def install_pack(root,config):
                 beds=compile_beds(ref,extract(source,bbox));size=config['tile']
                 beds['plans']=[p for p in beds['plans'] if tx*size<=p['points'][0][0]<(tx+1)*size and tz*size<=p['points'][0][1]<(tz+1)*size]
                 beds['selected']=len(beds['plans']);tile['beds']=beds;atomic_json(tile_path,tile)
-            key=f'{tx}_{tz}';region_keys.append(key)
-            (regions/f't{key}.js').write_text('export const treasure='+json.dumps(tile['treasure']['plans'],separators=(',',':'))+';\nexport const beds='+json.dumps(beds['plans'],separators=(',',':'))+';\n',encoding='utf-8')
+            key=f'{tx}_{tz}'
+            if not ref.furniture_baked:
+                region_keys.append(key)
+                (regions/f't{key}.js').write_text('export const treasure='+json.dumps(tile['treasure']['plans'],separators=(',',':'))+';\nexport const beds='+json.dumps(beds['plans'],separators=(',',':'))+';\n',encoding='utf-8')
             if atlasdb.execute('SELECT 1 FROM rendered WHERE tx=? AND tz=?',(tx,tz)).fetchone():continue
             # Render neighbouring vectors too; every cell includes whole roads
             # and labels across the generation tile boundary, without tile APIs.
@@ -78,7 +80,8 @@ def install_pack(root,config):
     base=Path(__file__).resolve().parent
     geo=(ASSETS/'behavior/scripts/geographic.js').read_text(encoding='utf-8').replace('/*MAPCRAFT_CONFIG*/null',json.dumps(asdict(ref),separators=(',',':')))
     (scripts/'geographic.js').write_text(geo,encoding='utf-8')
-    (scripts/'main.js').write_text("import './regions-loader.js';\n"+(base/'realmap.js').read_text(encoding='utf-8').replace('/*MAPCRAFT_ATLAS*/null',json.dumps({'sparse':True,'levels':levels},separators=(',',':'))),encoding='utf-8')
+    loader='' if ref.furniture_baked else "import './regions-loader.js';\n"
+    (scripts/'main.js').write_text(loader+(base/'realmap.js').read_text(encoding='utf-8').replace('/*MAPCRAFT_ATLAS*/null',json.dumps({'sparse':True,'levels':levels},separators=(',',':'))),encoding='utf-8')
     for name in ('arrival.js','treasure.js','beds.js','loot.js','regions-loader.js'):shutil.copyfile(base/name,scripts/name)
     from loot import script as loot_script
     (scripts/'loot-catalogue.js').write_text(loot_script(),encoding='utf-8')

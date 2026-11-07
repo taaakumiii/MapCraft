@@ -16,7 +16,7 @@ def pack_version(reference,map_root):
     # Re-importing an identical UUID/version is ignored by Minecraft. Advance
     # the patch revision when the creator changes the treasure options.
     path=map_root/'pack_revision.json'
-    settings=[reference.treasure_enabled,reference.treasure_probability,reference.beds_enabled,reference.beds_probability]
+    settings=[reference.treasure_enabled,reference.treasure_probability,reference.beds_enabled,reference.beds_probability,reference.furniture_baked]
     previous=json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
     revision=previous.get('revision',0) if previous.get('base')==VERSION else 0
     if previous.get('base')==VERSION and previous.get('settings')!=settings:revision+=1
@@ -35,6 +35,8 @@ def pack_files(reference=None):
     treasure=prepare_treasure(reference,map_root)
     from beds import prepare_beds
     beds=prepare_beds(reference,map_root)
+    if reference.furniture_baked:
+        treasure={**treasure,'plans':[]};beds={**beds,'plans':[]}
     version=pack_version(reference,map_root)
     identity=uuid.UUID(reference.map_id) if reference else uuid.uuid5(uuid.NAMESPACE_URL,'MapCraft/native-minimap/generic')
     # Same behavior header as 0.3: importing the update replaces the large GPS action bar.

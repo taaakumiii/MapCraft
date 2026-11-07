@@ -8,7 +8,8 @@
 - `tracking.py` / `realmap.py` / `nativepack.py`：座標対応、OSMベクトルからの地図描画、通常ワールドのアドオン。
 - `treasure*` / `beds*` / `loot*`：屋内判定、配置計画、バランスを付けた地域のアイテム。
 - `national_backend.py` / `national_pack.py` / `national_state.py`：PBF索引、固定全国座標での区画結合、パック、準備状態の検証。
-- `regions-loader.js`：プレイヤー周辺の区画だけ宝箱・ベッドの計画を動的に読み込みます。
+- `furniture_backend.py` / `loot_native.py`：通常のチェスト・アイテムNBT・両側のベッドを生成時に保存します。生成者のSQLiteジャーナルで再試行時の補充を防ぎます。
+- `regions-loader.js`：旧形式の、プレイヤー周辺で家具を配置するワールド向け互換処理です。事前配置版では実行しません。
 - `geology.py` / `geology_backend.py`：GSJ/GSI参照と、普通の石だけを変更する地質用の後処理。
 - `autogen.py`：実験的な無人処理。関東優先の等倍生成、再試行、容量を予約した出力。
 
@@ -44,6 +45,10 @@ engine\national-runtime\python.exe autogen.py --config config\autogen.json
 リポジトリのテストは、決定的な配置選択、家具設定の独立性、座標変換、HUD比率、未作成索引を作ってしまわないことを検証します。開発中には、小区画の実エンジン生成、地下鉄・地盤の保持、無人処理から出力まで、JavaScriptの配置・再接続も検証しています。
 
 これらはMinecraftの実画面での受け入れテストの代わりにはなりません。公開前には、配布ZIPを別の空フォルダーへ展開して起動し、小範囲生成、world/add-onの取り込み、ミニマップ、家具、再試行を実ゲームで確認してください。大規模な完成ワールドのゲーム動作は未検証です。
+
+事前配置はネイティブLevelDBの読み戻し、チェストの中身、チャンク境界をまたぐベッド、再試行で補充しないこと、実エンジンから全国座標への結合を検証しています。就寝・チェスト開閉・マルチ参加の実ゲーム検証は未実施です。`engine\national-runtime\python.exe -m unittest discover -s tests -v`でネイティブテストも実行できます。
+
+旧版の無人生成を止めずに最後だけ新形式へ変換する場合は、新ソースの別コピーから同梱Pythonで`scripts/finalize_furniture.py --config <旧処理の絶対パス設定JSON>`を実行します。旧処理の完了と両方のロック解放を待ち、生成者の元DBに家具を追加して再出力します。二重に巨大な出力を保持しないため、同じプロジェクトIDを検証した古い完成アーカイブを置き換えます。プレイ済みワールドには使用しないでください。待機処理はWindowsサービスではありません。
 
 ## 配布EXEの診断
 

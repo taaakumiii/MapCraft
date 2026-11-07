@@ -28,6 +28,7 @@ class MapReference:
     origin: tuple=(35.,135.)
     beds_enabled: bool=True
     beds_probability: float=.25
+    furniture_baked: bool=False
 
     @classmethod
     def from_generation(cls,data,identity=''):
@@ -52,7 +53,7 @@ class MapReference:
         beds=data.get('beds',{})
         return cls(str(uuid.uuid5(uuid.NAMESPACE_URL,'MapCraft/GPS/'+raw)),(s,w,n,e),scale,sx,sz,
                    treasure_enabled=options.get('enabled',True),treasure_probability=options.get('probability',.25),
-                   beds_enabled=beds.get('enabled',True),beds_probability=beds.get('probability',.25))
+                   beds_enabled=beds.get('enabled',True),beds_probability=beds.get('probability',.25),furniture_baked=data.get('furniture_baked',False))
 
     @classmethod
     def load(cls,data):
@@ -61,6 +62,8 @@ class MapReference:
         item.treasure_probability=data.get('treasure_probability',.25)
         item.projection=data.get('projection','local');item.origin=tuple(data.get('origin',(35.,135.)))
         item.beds_enabled=data.get('beds_enabled',True);item.beds_probability=data.get('beds_probability',.25)
+        item.furniture_baked=data.get('furniture_baked',False)
+        if not isinstance(item.furniture_baked,bool):raise ValueError('家具の生成方式が不正です。')
         if item.projection not in ('local','national_mercator'):raise ValueError('未知の投影方式です。')
         if len(item.origin)!=2 or not all(math.isfinite(v) for v in item.origin):raise ValueError('原点が不正です。')
         uuid.UUID(item.map_id);validate_bbox(item.bbox)

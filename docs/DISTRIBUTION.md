@@ -30,7 +30,7 @@ python scripts/package_release.py --out release
 python scripts/player_package.py --world path\to\generated.mcworld --out release\players --name MapCraft-MyArea
 ```
 
-世界に対応するパックを`.mcaddon`にもまとめます。部品のUUIDを保ち、ビヘイビアーとリソースのバージョンを揃えます。導入手順と出典を必ず一緒に配布してください。
+パック付きワールドでは、対応するパックを`.mcaddon`にもまとめます。パックなし版では家具と中身を含む`.mcworld`だけを作成します。部品のUUIDを保ち、ビヘイビアーとリソースのバージョンを揃えます。導入手順と出典を必ず一緒に配布してください。
 
 配布用のTokyo Demoは東京駅付近の最初の1区画だけを対象にした試遊用です。全国完成版ではありません。更新された完成ワールドへ試遊中の建築を統合する機能もありません。
 

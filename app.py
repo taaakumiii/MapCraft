@@ -54,7 +54,7 @@ class App:
         self.mode = tk.StringVar(value=next(iter(MODES))); self.height = tk.StringVar(value='1.0')
         self.vanilla = tk.BooleanVar(value=True); self.overture = tk.BooleanVar(value=True)
         self.trees = tk.BooleanVar(value=True); self.interaction = tk.StringVar(value='select')
-        self.fillground=tk.BooleanVar(value=True);self.geology_enabled=tk.BooleanVar(value=True)
+        self.fillground=tk.BooleanVar(value=True);self.geology_enabled=tk.BooleanVar(value=True);self.include_navigation=tk.BooleanVar(value=True)
         self.treasure_enabled=tk.BooleanVar(value=True);self.treasure_probability=tk.StringVar(value='25')
         self.beds_enabled=tk.BooleanVar(value=True);self.beds_probability=tk.StringVar(value='25')
         self.output = tk.StringVar(value=str(BASE/'worlds')); self.coordinates = tk.StringVar()
@@ -184,6 +184,8 @@ class App:
         ttk.Checkbutton(pane,text='公的地質・人工地形を地下に反映（Windows統合版）',variable=self.geology_enabled).pack(anchor='w',pady=(5,2))
         self.label(pane,'地中を埋める設定と併用。Y=1〜56の石を地質に応じて変更。\n深さ・鉱石の分布は冒険向けのゲーム用モデルです。',muted=True)
         ttk.Separator(pane).pack(fill='x',pady=12)
+        ttk.Checkbutton(pane,text='実地図ミニマップ・到着通知を同梱する',variable=self.include_navigation).pack(anchor='w',pady=(4,2))
+        self.label(pane,'オフでも宝箱・ベッドは生成時に配置します。\n表示用アドオンなしのマップとして遊べます。',muted=True)
         self.label(pane,'地域の宝箱（Windows統合版）',bold=True)
         probability=ttk.Spinbox(pane,from_=0,to=100,increment=1,textvariable=self.treasure_probability,width=8)
         def treasure_changed():probability.configure(state='normal' if self.treasure_enabled.get() else 'disabled')
@@ -449,7 +451,7 @@ class App:
             self.last_folder=folder;self.last_world=None
             manifest={'app':'MapCraft '+VERSION,'job_schema':1,'engine':'Arnis v3.4.0','bbox':bbox,'scale':scale,'edition':self.job_edition,'fillground':self.fillground.get(),
                       'command':args,'status':'running','data_license':'https://www.openstreetmap.org/copyright',
-                      'scope':'User-selected bounding rectangle','treasure':treasure,'beds':beds,'geology':{'enabled':self.geology_enabled.get()}}
+                      'scope':'User-selected bounding rectangle','treasure':treasure,'beds':beds,'geology':{'enabled':self.geology_enabled.get()},'include_navigation':self.include_navigation.get()}
             atomic_json(folder/'generation.json',manifest)
             self.launch_job(folder,manifest)
         except Exception as e:messagebox.showerror('生成を開始できません',str(e))
@@ -477,7 +479,7 @@ class App:
             for flag,var in [('--height-multiplier',self.height),('--overture',self.overture),('--canopy-height',self.trees)]:
                 if flag in args:
                     value=args[args.index(flag)+1];var.set(value if var is self.height else value=='true')
-            self.vanilla.set('--vanilla-height' in args);self.fillground.set('--fillground' in args);self.geology_enabled.set(data.get('geology',{}).get('enabled',False))
+            self.vanilla.set('--vanilla-height' in args);self.fillground.set('--fillground' in args);self.geology_enabled.set(data.get('geology',{}).get('enabled',False));self.include_navigation.set(data.get('include_navigation',True))
             for kind,enabled,probability in [('treasure',self.treasure_enabled,self.treasure_probability),('beds',self.beds_enabled,self.beds_probability)]:
                 enabled.set(data.get(kind,{}).get('enabled',True));probability.set(f"{data.get(kind,{}).get('probability',.25)*100:g}")
             self.update_selection();self.fit()

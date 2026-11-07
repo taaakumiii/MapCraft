@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.0-preview
+
+- Bake ordinary Bedrock chests, balanced regional inventories and both bed halves into creator outputs before play; no furniture add-on is required.
+- Optional add-on-free ordinary export, retaining native furniture and data credits.
+- National tile ownership keeps both bed halves in merged chunks; older private build projects are backfilled before export.
+- Creator-side write-ahead journal prevents refilling or respawning furniture on retry. Baked packs no longer run deferred placement plans.
+- Native LevelDB readback and engine-to-national merge checks; in-game opening, sleeping and multiplayer acceptance remain unverified.
+
 ## 0.13.0-preview
 
 - Portable Creator distribution, per-world Player packages, source-only repository and reproducible build scripts.

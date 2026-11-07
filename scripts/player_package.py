@@ -25,6 +25,18 @@ def player_package(source,destination,source_data=None,name="MapCraft-World",dem
             if item.filename.startswith(('behavior_packs/','resource_packs/')) and not item.is_dir():files[item.filename]=original.read(item)
         bp=[name for name in files if name.startswith('behavior_packs/') and name.endswith('/manifest.json')]
         rp=[name for name in files if name.startswith('resource_packs/') and name.endswith('/manifest.json')]
+        if not bp and not rp and tracking.get('furniture_baked'):
+            with zipfile.ZipFile(world,'w',zipfile.ZIP_DEFLATED) as output:
+                for item in original.infolist():
+                    if item.is_dir() or item.filename in ('mapcraft_national.json','world_icon.jpeg','MAPCRAFT-DISTRIBUTION.json','LICENSE-MapCraft.txt','THIRD-PARTY-NOTICES.md'):continue
+                    with original.open(item) as src,output.open(item,'w') as dst:
+                        while block:=src.read(1024*1024):dst.write(block)
+                output.writestr('LICENSE-MapCraft.txt',(ROOT/'LICENSE').read_bytes())
+                output.writestr('THIRD-PARTY-NOTICES.md',(ROOT/'THIRD_PARTY_NOTICES.md').read_bytes())
+                if source_data:output.writestr('mapcraft_credits/SOURCE-OSM.json',Path(source_data).read_bytes())
+                output.writestr('MAPCRAFT-DISTRIBUTION.json',json.dumps({'version':VERSION,'type':'Vanilla map with native furniture','scale':tracking['scale'],'map_id':tracking['map_id'],
+                    'status':'Tokyo Station area, one initial tile; preview, not a completed nationwide world' if demo else 'generator export'}))
+            return world,None
         if len(bp)!=1 or len(rp)!=1:raise ValueError('This package helper expects a single MapCraft behavior/resource pair.')
         bp_root=bp[0].removesuffix('manifest.json');rp_root=rp[0].removesuffix('manifest.json')
         for manifest_path,label in [(bp[0],name),(rp[0],name+' HUD')]:
@@ -43,7 +55,7 @@ def player_package(source,destination,source_data=None,name="MapCraft-World",dem
             for item in original.infolist():
                 name=item.filename
                 if item.is_dir() or name.startswith(('behavior_packs/','resource_packs/')):continue
-                if name in ('mapcraft_national.json','world_icon.jpeg'):continue
+                if name in ('mapcraft_national.json','world_icon.jpeg','MAPCRAFT-DISTRIBUTION.json'):continue
                 if name in ('world_behavior_packs.json','world_resource_packs.json'):
                     entries=json.loads(original.read(item))
                     for entry in entries:entry['version']=PACK_VERSION
@@ -65,4 +77,5 @@ def player_package(source,destination,source_data=None,name="MapCraft-World",dem
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--world',required=True,type=Path);parser.add_argument('--out',required=True,type=Path)
     parser.add_argument('--source-data',type=Path);parser.add_argument('--name',default='MapCraft-World');parser.add_argument('--demo',action='store_true');args=parser.parse_args()
-    for result in player_package(args.world,args.out,args.source_data,args.name,args.demo):print(result)
+    for result in player_package(args.world,args.out,args.source_data,args.name,args.demo):
+        if result is not None:print(result)

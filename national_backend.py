@@ -267,7 +267,7 @@ def create_project(root,index,scale,poly,bbox=None,spawn=None,treasure=None,tile
             'scale':scale,'tile':tile,'origin':ORIGIN,'projection':'national_mercator','scope':str(Path(poly).resolve()),
             'bbox':bbox or [south,west,north,east],'spawn':spawn,'spawn_policy':'tokyo_station' if scope_mode=='national' else 'selected_area',
             'scope_mode':scope_mode,'total':total,'created':time.time(),
-            'mode':'geo-only','ground_level':64,'fillground':True,'treasure':treasure or {'enabled':True,'probability':.25},
+            'mode':'geo-only','ground_level':64,'fillground':True,'furniture_baked':True,'treasure':treasure or {'enabled':True,'probability':.25},
             'beds':beds or {'enabled':True,'probability':.25},'geology':geology if geology is not None else {'enabled':True}}
     atomic_json(root/'project.json',config)
     emit('planned',tiles=total,chunks=total*(tile//16)**2,project=str(root))
@@ -445,8 +445,6 @@ def run_tiles(root,limit=0,near=None):
                 ref=MapReference(config['map_id'],tuple(config['bbox']),scale,1,1,projection='national_mercator',origin=ORIGIN)
                 geology_record=apply_directory(unpack,ref,BASE/'cache/geology',lambda text:emit('log',text=text),offset=spec['offset'])
                 atomic_json(root/'geology-last-tile.json',geology_record)
-            if not (world/'level.dat').exists():initialise_world(unpack,world,spec['offset'],config)
-            chunks=merge_tile(unpack,world,spec['offset'],tx,tz,tile)
             # A stable identity keeps loot selection/dynamic properties stable on resume.
             ref=MapReference(config['map_id'],tuple(config['bbox']),scale,1,1,projection='national_mercator',origin=ORIGIN,
                              treasure_enabled=config['treasure']['enabled'],treasure_probability=config['treasure']['probability'],
@@ -456,8 +454,14 @@ def run_tiles(root,limit=0,near=None):
             beds=compile_beds(ref,payload)
             beds['plans']=[p for p in beds['plans'] if tx*tile<=p['points'][0][0]<(tx+1)*tile and tz*tile<=p['points'][0][1]<(tz+1)*tile]
             beds['selected']=len(beds['plans'])
+            from furniture_backend import bake_directory
+            # Only this tile's chunks are merged. Keep both bed halves inside it.
+            furniture=bake_directory(unpack,plans['plans'],beds['plans'],offset=spec['offset'],
+                                     owned_bounds=(tx*tile,tz*tile,(tx+1)*tile,(tz+1)*tile),notify=lambda text:emit('log',text=text))
+            if not (world/'level.dat').exists():initialise_world(unpack,world,spec['offset'],config)
+            chunks=merge_tile(unpack,world,spec['offset'],tx,tz,tile)
             assets=root/'tile_data';assets.mkdir(exist_ok=True)
-            atomic_json(assets/f'{tx}_{tz}.json',{'bbox':spec['bbox'],'treasure':plans,'beds':beds})
+            atomic_json(assets/f'{tx}_{tz}.json',{'bbox':spec['bbox'],'treasure':plans,'beds':beds,'furniture':furniture})
             # DB batch is atomic. A crash before this commit safely repeats the same
             # private build tile. Installed/played worlds are never edited here.
             queue.execute("UPDATE tiles SET state='done',chunks=?,seconds=? WHERE tx=? AND tz=?",(chunks,time.monotonic()-started,tx,tz));queue.commit()
@@ -471,6 +475,8 @@ def export_world(root,destination):
     if not config.get('fillground'):raise ValueError('旧版の地下空洞設定のプロジェクトです。新しいプロジェクトで地中を含めて再生成してください。')
     if not status(root)['completed']:raise ValueError('まず1区画以上を生成してください。')
     configure_spawn(root,config)
+    from furniture_backend import ensure_project_furniture
+    ensure_project_furniture(root,lambda text:emit('log',text=text));config=load_project(root)
     # Export a snapshot, leaving the persistent private database extensible.
     from national_pack import install_pack
     install_pack(root,config)

@@ -16,7 +16,7 @@ import zipfile
 from core import ENGINE_SHA256,find_worlds,validate_bbox
 from jobcache import atomic_json,source_hash
 
-STAGES={'validate':'保存情報の確認','engine':'地形・建物の生成','geology':'公的地盤データの反映','map':'実地図の作成','boundaries':'市町村境界の準備',
+STAGES={'validate':'保存情報の確認','engine':'地形・建物の生成','geology':'公的地盤データの反映','furniture':'宝箱・ベッドをワールドへ事前配置','map':'実地図の作成','boundaries':'市町村境界の準備',
         'treasure':'チェストの準備','beds':'ベッドの準備','addon':'アドオンの作成',
         'embed':'ワールドへの組み込み','metadata':'生成情報の保存','complete':'完了'}
 class JobBusy(RuntimeError):pass
@@ -230,6 +230,23 @@ class GenerationJob:
                     self.check();self.log(raw.decode('utf-8',errors='replace'))
                 code=process.wait();self.active_process=None;self.process_changed(None);self.check()
                 if code:raise RuntimeError('地盤の反映に失敗しました。地形・建物は保存済みです。「履歴・再試行」で続けられます。')
+        self.stage('furniture')
+        import sys
+        from dataclasses import replace
+        base=Path(sys.executable).parent if getattr(sys,'frozen',False) else Path(__file__).resolve().parent
+        request=self.folder/'furniture-request.json';runtime=base/'engine/national-runtime/python.exe'
+        for world in worlds:
+            atomic_json(request,{'world':str(world),'reference':asdict(reference),'osm':str(self.folder/'osm.json'),
+                                 'vanilla':not self.data.get('include_navigation',True)})
+            process=subprocess.Popen([str(runtime),str(base/'furniture_backend.py'),'--request',str(request)],env={**os.environ,'PYTHONIOENCODING':'utf-8'},stdout=subprocess.PIPE,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),cwd=str(base))
+            self.active_process=process;self.process_changed(process)
+            for raw in process.stdout:self.check();self.log(raw.decode('utf-8',errors='replace'))
+            code=process.wait();self.active_process=None;self.process_changed(None);self.check()
+            if code:raise RuntimeError('家具の事前配置に失敗しました。保存済みの生成から再試行できます。')
+        self.data['furniture_baked']=True;self.save();reference=replace(reference,furniture_baked=True)
+        if not self.data.get('include_navigation',True):
+            self.stage('metadata');metadata=self.folder/'mapcraft_tracking.json';atomic_json(metadata,asdict(reference))
+            self.data['navigation']={'metadata':str(metadata),'mode':'vanilla_map'};self.save();return
         self.stage('map');root,atlas=prepare_map(reference,source=self.folder/'osm.json')
         for stage,prepare in [('boundaries',prepare_boundaries),('treasure',prepare_treasure),('beds',prepare_beds)]:
             self.stage(stage);prepare(reference,root)
