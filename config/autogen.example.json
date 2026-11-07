@@ -1,0 +1,9 @@
+{
+  "base": ".",
+  "project": "worlds/MapCraftJapan",
+  "index": "national_data/japan.sqlite",
+  "source": "national_data/japan.osm.pbf",
+  "poly": "national_data/japan.poly",
+  "budget_bytes": 2500000000000,
+  "scale": 1.0
+}

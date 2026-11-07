@@ -1,0 +1,6 @@
+Item identifiers derived from Mojang Bedrock Samples v1.26.60.5.
+Commit: 15701fa9c13923f12662984c32c124327e40e3d3
+https://github.com/Mojang/bedrock-samples/tree/v1.26.60.5
+Only identifiers and MapCraft-authored classifications/weights are included; no Mojang textures, models, sounds or complete original metadata are redistributed by the catalogue.
+Minecraft and the original sample data are owned by Mojang AB/Microsoft. The original samples are provided under Minecraft EULA terms, not the MIT license of the upstream minimap.
+https://github.com/Mojang/bedrock-samples/blob/v1.26.60.5/LICENSE.md

@@ -1,0 +1,20 @@
+MapCraft nationwide builder runtime
+
+Python 3.12.10 embedded distribution: Python Software Foundation License.
+See engine/national-runtime/LICENSE.txt and RUNTIME-PROVENANCE.json.
+
+Amulet LevelDB 1.0.7 and Amulet NBT 2.1.6: Amulet Team License 1.0.0.
+Required Notice: Copyright Amulet Team. (https://www.amuletmc.com/)
+These components are not covered by MapCraft's MIT license. Their full terms,
+including permitted purposes, are included in:
+  engine/national-runtime/Lib/site-packages/amulet_leveldb-1.0.7.dist-info/licenses/LICENSE
+  engine/national-runtime/Lib/site-packages/amulet_nbt-2.1.6.dist-info/licenses/LICENSE
+
+Pyosmium 4.3.0, libosmium, protozero, Shapely 2.1.2, GEOS, Pillow 12.0.0,
+NumPy 1.26.4, mutf8 and Requests dependencies retain their individual licenses.
+Full package licenses and notices are in the corresponding dist-info directories
+and wheel-bundled dependency directories under engine/national-runtime/.
+
+The standalone Minecraft worlds embed the MapCraft gameplay add-on and its
+OSM/Geofabrik and upstream minimap notices; the Python builder runtime is not
+required to play them.

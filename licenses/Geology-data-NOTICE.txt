@@ -1,0 +1,7 @@
+Geological source: Geological Survey of Japan, AIST, Seamless Digital Geological Map of Japan (1:200,000), V2.
+https://gsj-seamless.jp/seamless/v2/api/1.3/
+https://www.gsj.jp/license/index.html
+Artificial landform source: Geospatial Information Authority of Japan, experimental_landformclassification2.
+https://www.gsi.go.jp/bousaichiri/lfc_index.html
+https://www.gsi.go.jp/kikakuchousei/kikakuchousei40182.html
+MapCraft processes these surface classifications into fictional Minecraft materials and ore probability adjustments. It does not reconstruct real 3D strata, mineral deposits or engineering information.

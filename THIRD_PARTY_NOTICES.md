@@ -1,0 +1,23 @@
+# Third-party notices
+
+MapCraft's own code is MIT-licensed. That license does not replace any third-party license below.
+
+| Component / data | Terms and attribution |
+|---|---|
+| Arnis v3.4.0, Louis Erbkamm and contributors | Apache-2.0. Unmodified official Windows executable. See `licenses/Arnis-LICENSE.txt`, `Arnis-NOTICE.txt`, `Arnis-UPSTREAM-NOTICE.txt`, and the complete upstream data/asset credits in `Arnis-UPSTREAM-CREDITS.js`. https://github.com/louis-e/arnis/tree/v3.4.0 |
+| Upstream minimap, kirbycope/minimap-bedrock | MIT. Keep `native_minimap/LICENSE-upstream.txt`, `CREDITS-upstream.md`, and `UPSTREAM.json`. MapCraft changes the geographic UI, pack identity and gameplay features. |
+| Amulet LevelDB 1.0.7 / Amulet NBT 2.1.6 | **Amulet Team License 1.0.0**, not MIT/Apache. Required Notice: Copyright Amulet Team. (https://www.amuletmc.com/). Full terms: `licenses/amulet_leveldb-1.0.7-LICENSE.txt`, `licenses/amulet_nbt-2.1.6-LICENSE.txt` and the original wheel licenses. These include permitted-purpose and noncompete provisions; do not describe the complete package as unrestricted commercial software. |
+| Python 3.12.10 embedded | Python Software Foundation License; full original `engine/national-runtime/LICENSE.txt` and provenance are included with the binary distribution. |
+| PyInstaller | GPL with its bootloader exception; see the bundled PyInstaller license. This does not change MapCraft's source license. |
+| Pillow, NumPy, Pyosmium/libosmium/protozero, Shapely/GEOS, Requests and other runtime packages | Their original licenses and bundled dependency notices are retained in the runtime's `dist-info` and library directories. See `requirements-runtime.txt` for pinned versions. |
+| OpenStreetMap | © OpenStreetMap contributors, ODbL 1.0. https://www.openstreetmap.org/copyright / https://opendatacommons.org/licenses/odbl/1-0/ |
+| Geofabrik Japan extract and extent | OSM-derived data, Geofabrik. https://download.geofabrik.de/asia/japan.html . No full Japan PBF or local indexed database is included in the source or Creator ZIP. |
+| Geological Survey of Japan, AIST | Seamless Digital Geological Map of Japan (1:200,000), V2, processed by MapCraft. https://gsj-seamless.jp/seamless/v2/api/1.3/ . See `licenses/Geology-data-NOTICE.txt`. |
+| Geospatial Information Authority of Japan | Artificial landform classification, processed by MapCraft. https://www.gsi.go.jp/bousaichiri/lfc_index.html |
+| Mojang Bedrock Samples item identifiers | Identifier-derived catalogue only; no original Mojang models, sounds or textures are distributed by this catalogue. See `licenses/Item-catalogue-NOTICE.txt`. |
+
+Generated worlds may use additional sources through Arnis options such as terrain, building supplementation and tree data. Preserve the engine's source/asset notices and the generated pack credits when distributing worlds.
+
+ODbL-derived map images and vector/boundary datasets are not relicensed under MIT. Keep the OSM source data and attribution supplied with an add-on. This project is not an official Minecraft product and is not approved by or associated with Mojang or Microsoft.
+
+The Amulet license text is included to make its conditions visible; this document is a component inventory, not a separate permission from its authors. Check the applicable original license before commercial or competitive distribution/use.

@@ -1,0 +1,11 @@
+{
+  "upstream": "https://github.com/kirbycope/minimap-bedrock",
+  "commit": "981c8844cfba79d924f35fe04a224ddd1344b87d",
+  "license": "MIT",
+  "changes": [
+    "MapCraft per-world coordinates",
+    "Japanese menu",
+    "Small GPS footer",
+    "MapCraft pack identities"
+  ]
+}
