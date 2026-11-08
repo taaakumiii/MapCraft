@@ -213,7 +213,13 @@ def ensure_project_ecology(root,notify=print):
         for i,(tx,tz) in enumerate(tiles):
             path=root/'tile_data'/f'{tx}_{tz}.json';data=json.loads(path.read_text(encoding='utf-8'));compiled=data.get('ecology')
             if compiled is None or compiled.get('options')!=settings:
-                size=config['tile'];compiled=compile_mobs(ref,n.extract(source,data['bbox']),settings,owned_bounds=(tx*size,tz*size,(tx+1)*size,(tz+1)*size))
+                try:
+                    from parallel_plans import cached
+                    prepared=cached(root,config,data,path.name)
+                except ImportError:prepared=None
+                if prepared and prepared.get('ecology',{}).get('options')==settings:compiled=prepared['ecology']
+                else:
+                    size=config['tile'];compiled=compile_mobs(ref,n.extract(source,data['bbox']),settings,owned_bounds=(tx*size,tz*size,(tx+1)*size,(tz+1)*size))
                 data['ecology']=compiled;n.atomic_json(path,data)
             result['groups'].extend(compiled['groups']);result['bosses'].extend(compiled['bosses'])
             if i%20==0:notify(f'動物とボスの配置計画: {i+1:,}/{len(tiles):,} 区画')

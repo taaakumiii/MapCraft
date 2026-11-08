@@ -1,5 +1,6 @@
 """Bundle Japanese municipal boundaries from OSM for offline arrival detection."""
 import json
+from collections import deque
 from pathlib import Path
 import urllib.parse
 import urllib.request
@@ -20,19 +21,26 @@ def boundary_query(bbox):
 
 def join_rings(segments):
     pending=[list(segment) for segment in segments if len(segment)>1]
-    rings=[]
-    while pending:
-        line=pending.pop()
+    endpoints={};active=set(range(len(pending)));rings=[];last=len(pending)-1
+    for index,segment in enumerate(pending):
+        for point in (tuple(segment[0]),tuple(segment[-1])):endpoints.setdefault(point,set()).add(index)
+    def take(index):
+        active.remove(index);segment=pending[index]
+        for point in (tuple(segment[0]),tuple(segment[-1])):endpoints[point].discard(index)
+        return segment
+    while active:
+        while last not in active:last-=1
+        line=deque(take(last))
         while line[0]!=line[-1]:
-            for i,other in enumerate(pending):
-                if line[-1]==other[0]:line.extend(other[1:])
-                elif line[-1]==other[-1]:line.extend(reversed(other[:-1]))
-                elif line[0]==other[-1]:line=other[:-1]+line
-                elif line[0]==other[0]:line=list(reversed(other[1:]))+line
-                else:continue
-                pending.pop(i);break
-            else:raise ValueError('市町村境界が閉じていません。地理データを再取得してください。')
-        if len(line)>=4:rings.append(line)
+            candidates=endpoints.get(tuple(line[0]),set())|endpoints.get(tuple(line[-1]),set())
+            if not candidates:raise ValueError('市町村境界が閉じていません。地理データを再取得してください。')
+            # The old scan chose the first remaining segment; retain that order.
+            other=take(min(candidates))
+            if line[-1]==other[0]:line.extend(other[1:])
+            elif line[-1]==other[-1]:line.extend(reversed(other[:-1]))
+            elif line[0]==other[-1]:line.extendleft(reversed(other[:-1]))
+            elif line[0]==other[0]:line.extendleft(other[1:])
+        if len(line)>=4:rings.append(list(line))
     return rings
 
 

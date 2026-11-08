@@ -196,7 +196,7 @@ def bed_clear(blocks,plan,foot,direction):
     if not any(all(blocks.get(px+dz*side,py,pz-dx*side)=='minecraft:air' and blocks.get(px+dz*side,py+1,pz-dx*side)=='minecraft:air' and support(blocks.get(px+dz*side,py-1,pz-dx*side)) for px,py,pz in [foot,head]) for side in [-1,1]):return None
     return head if enclosed(blocks,plan,*head,roof=True) else None
 
-def bake_directory(world,chests,beds,*,offset=(0,0),state_path=None,owned_bounds=None,notify=print):
+def bake_directory(world,chests,beds,*,offset=(0,0),state_path=None,owned_bounds=None,notify=print,database=None):
     world=Path(world);state_path=Path(state_path) if state_path else world/'mapcraft_furniture-state.sqlite'
     journal=sqlite3.connect(state_path);journal.execute('PRAGMA journal_mode=WAL')
     journal.execute('CREATE TABLE IF NOT EXISTS plans(kind TEXT,id TEXT,status TEXT,data TEXT,PRIMARY KEY(kind,id))')
@@ -208,7 +208,9 @@ def bake_directory(world,chests,beds,*,offset=(0,0),state_path=None,owned_bounds
         journal.execute("DELETE FROM plans WHERE kind='chest' AND status IN ('skipped','blocked')")
         journal.execute("INSERT OR REPLACE INTO meta VALUES('furniture_schema',?)",(str(VERSION),))
     journal.commit()
-    db=leveldb.LevelDB(str(world/'db'),create_if_missing=False);blocks=Blocks(db,offset);counts={'chests':0,'beds':0,'skipped':0,'existing':0,'incomplete':0,'floors_detected':0,'floors_selected':0}
+    owns_database=database is None
+    db=leveldb.LevelDB(str(world/'db'),create_if_missing=False) if owns_database else database
+    blocks=Blocks(db,offset);counts={'chests':0,'beds':0,'skipped':0,'existing':0,'incomplete':0,'floors_detected':0,'floors_selected':0}
     pool=json.loads((BASE/'survival-items.json').read_text(encoding='utf-8'))['items']
     try:
         def expand():
@@ -268,7 +270,9 @@ def bake_directory(world,chests,beds,*,offset=(0,0),state_path=None,owned_bounds
                 blocks.commit()
                 journal.execute("UPDATE plans SET status='placed' WHERE kind=? AND id=?",(kind,plan['id']));journal.commit()
                 if number%100==0:notify(f'家具を事前配置: 宝箱 {counts["chests"]} / ベッド {counts["beds"]}')
-    finally:db.close();journal.close()
+    finally:
+        if owns_database:db.close()
+        journal.close()
     report={'version':VERSION,'mode':'native_blocks','target_bedrock':'1.26.60+','counts':counts}
     (world/'mapcraft_furniture.json').write_text(json.dumps(report,ensure_ascii=False),encoding='utf-8')
     return report
