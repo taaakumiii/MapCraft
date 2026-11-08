@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.16.0-preview
+
+- Optional NVIDIA driver-only geological compute, with no required GPU runtime package or CUDA Toolkit installation.
+- Compare warm CPU/GPU execution and exact native bytes; automatically use the faster path and fall back to CPU when GPU initialization or a later batch fails.
+- CPU-only setting and adaptive CPU worker count; native tests cover missing GPUs, mid-batch errors, existing blocks and real RTX 4060 Ti output equivalence.
+
 ## 0.15.0-preview
 
 - Independent per-floor chest draws with a configurable 0–100% chance (25% default), at most one chest per usable floor, including rooms below thick cobbled roofs.

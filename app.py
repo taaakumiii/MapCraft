@@ -54,7 +54,7 @@ class App:
         self.mode = tk.StringVar(value=next(iter(MODES))); self.height = tk.StringVar(value='1.0')
         self.vanilla = tk.BooleanVar(value=True); self.overture = tk.BooleanVar(value=True)
         self.trees = tk.BooleanVar(value=True); self.interaction = tk.StringVar(value='select')
-        self.fillground=tk.BooleanVar(value=True);self.geology_enabled=tk.BooleanVar(value=True);self.include_navigation=tk.BooleanVar(value=True)
+        self.fillground=tk.BooleanVar(value=True);self.geology_enabled=tk.BooleanVar(value=True);self.gpu_enabled=tk.BooleanVar(value=True);self.include_navigation=tk.BooleanVar(value=True)
         self.treasure_enabled=tk.BooleanVar(value=True);self.treasure_probability=tk.StringVar(value='25')
         self.beds_enabled=tk.BooleanVar(value=True);self.beds_probability=tk.StringVar(value='25')
         self.output = tk.StringVar(value=str(BASE/'worlds')); self.coordinates = tk.StringVar()
@@ -183,6 +183,8 @@ class App:
         self.label(pane,'標準でオン。基準の地面Y=64から地中を石・鉱石で埋めます。\n地下鉄トンネルは地図に登録された路線から生成します。\n生成済みのワールドへの反映には再生成が必要です。',muted=True)
         ttk.Checkbutton(pane,text='公的地質・人工地形を地下に反映（Windows統合版）',variable=self.geology_enabled).pack(anchor='w',pady=(5,2))
         self.label(pane,'地中を埋める設定と併用。Y=1〜56の石を地質に応じて変更。\n深さ・鉱石の分布は冒険向けのゲーム用モデルです。',muted=True)
+        ttk.Checkbutton(pane,text='対応GPUで地盤計算を高速化（自動判定）',variable=self.gpu_enabled).pack(anchor='w',pady=(8,2))
+        self.label(pane,'速度を比較して速い方式を使用。GPU未対応・利用不可・\nCPUの方が速い場合は、CPUで処理します。',muted=True)
         ttk.Separator(pane).pack(fill='x',pady=12)
         ttk.Checkbutton(pane,text='実地図ミニマップ・到着通知を同梱する',variable=self.include_navigation).pack(anchor='w',pady=(4,2))
         self.label(pane,'オフでも宝箱・ベッドは生成時に配置します。\n表示用アドオンなしのマップとして遊べます。',muted=True)
@@ -451,7 +453,7 @@ class App:
             self.last_folder=folder;self.last_world=None
             manifest={'app':'MapCraft '+VERSION,'job_schema':1,'engine':'Arnis v3.4.0','bbox':bbox,'scale':scale,'edition':self.job_edition,'fillground':self.fillground.get(),
                       'command':args,'status':'running','data_license':'https://www.openstreetmap.org/copyright',
-                      'scope':'User-selected bounding rectangle','treasure':treasure,'beds':beds,'geology':{'enabled':self.geology_enabled.get()},'include_navigation':self.include_navigation.get()}
+                      'scope':'User-selected bounding rectangle','treasure':treasure,'beds':beds,'geology':{'enabled':self.geology_enabled.get(),'backend':'auto' if self.gpu_enabled.get() else 'cpu'},'include_navigation':self.include_navigation.get()}
             atomic_json(folder/'generation.json',manifest)
             self.launch_job(folder,manifest)
         except Exception as e:messagebox.showerror('生成を開始できません',str(e))
@@ -480,6 +482,7 @@ class App:
                 if flag in args:
                     value=args[args.index(flag)+1];var.set(value if var is self.height else value=='true')
             self.vanilla.set('--vanilla-height' in args);self.fillground.set('--fillground' in args);self.geology_enabled.set(data.get('geology',{}).get('enabled',False));self.include_navigation.set(data.get('include_navigation',True))
+            self.gpu_enabled.set(data.get('geology',{}).get('backend','auto')!='cpu')
             for kind,enabled,probability in [('treasure',self.treasure_enabled,self.treasure_probability),('beds',self.beds_enabled,self.beds_probability)]:
                 enabled.set(data.get(kind,{}).get('enabled',True));probability.set(f"{data.get(kind,{}).get('probability',.25)*100:g}")
             self.update_selection();self.fit()
@@ -633,12 +636,13 @@ if __name__=='__main__':
             report['catalogue_loaded']=loot_script().startswith('// Item identifiers:')
             report['hud_loaded']=len(frame_bytes())>0
             report['engine_valid']=hashlib.sha256(ENGINE.read_bytes()).hexdigest()==ENGINE_SHA256
+            report['gpu_assets_valid']=all((BASE/name).is_file() for name in ('gpu_driver.py','geology_gpu.ptx'))
             hidden=tk.Tk();hidden.withdraw();report['tk_version']=hidden.tk.call('info','patchlevel');hidden.destroy()
             result=subprocess.run([str(BASE/'engine/national-runtime/python.exe'),'-c',
                 'import leveldb,amulet_nbt,osmium,shapely,numpy,PIL;print("runtime-ok")'],capture_output=True,
                 creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),timeout=60)
             report['runtime_valid']=result.returncode==0 and b'runtime-ok' in result.stdout
-            report['ok']=all(report[k] for k in ('catalogue_loaded','hud_loaded','engine_valid','runtime_valid'))
+            report['ok']=all(report[k] for k in ('catalogue_loaded','hud_loaded','engine_valid','runtime_valid','gpu_assets_valid'))
         except Exception as error:report['error']=str(error)
         destination.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
         sys.exit(0 if report['ok'] else 1)

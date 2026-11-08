@@ -50,7 +50,15 @@ engine\national-runtime\python.exe scripts\finish_phase.py --config config\autog
 
 `--takeover`は現在の区画の保存完了を待ってから、両方の生成ロックを取得して引き継ぎます。外側の未生成区画は`deferred_phase`として保持し、全国計画や生成済み区画を削除しません。指定地域の生成、家具の事前配置、出力を終えると停止します。以後の拡張時は、追加する地域の計画に対して保留を解除します。出力済みのプレイワールドの変更を自動統合する機能ではありません。
 
-地盤計算は`MAPCRAFT_GEOLOGY_WORKERS=8`等でも指定できます（通常の既定値は1）。ワーカーはサブチャンクのバイト列だけを受け取り、計算を分担します。LevelDBへの書き込みは親プロセスのみが行います。キューを並列数の2倍に制限してメモリー使用量を抑え、出力順を維持します。`MAPCRAFT_GEOLOGY_CACHE`で共有キャッシュの絶対パスを指定できます。単一と複数プロセスのネイティブDB内容の一致を検証しています。
+地盤CPU計算は`MAPCRAFT_GEOLOGY_WORKERS=8`等で並列数を指定できます。ワーカーはサブチャンクのバイト列だけを受け取り、計算を分担します。LevelDBへの書き込みは親プロセスのみが行います。キューを並列数の2倍に制限してメモリー使用量を抑え、出力順を維持します。`MAPCRAFT_GEOLOGY_CACHE`で共有キャッシュの絶対パスを指定できます。単一と複数プロセスのネイティブDB内容の一致を検証しています。
+
+0.16のCPU並列数は既定で論理CPU数の半分、最大8です。`MAPCRAFT_COMPUTE_BACKEND`は`auto`（既定）・`cpu`・`gpu`を指定でき、保存されたプロジェクトの`geology.backend`があればそちらを優先します。`auto`はプロセス内の最初のサンプルで両経路をウォームアップし、保存バイト列の一致と転送・パレット変換を含む時間を比較します。GPUが10%以上速い場合に使用し、結果の不一致や初期化・途中のGPUエラー時は未出力のバッチからCPUで再計算します。ワールドへの書き込みは常にCPUの1プロセスです。
+
+GPU経路でもパレット変換はCPUプールで分担します。GPUコンテキストは親プロセスだけが持ち、子プロセスへ渡すのは通常の配列とバイト列だけです。1回のGPUバッチは最大1,024サブチャンクに制限します。
+
+`gpu_driver.py`はシステムの`nvcuda.dll`を遅延ロードします。独自カーネル`geology_gpu.cu`から生成した`geology_gpu.ptx`だけを同梱し、CUDA DLLやコンパイラー、CuPy等は配布しません。PTXはNVRTC 12.4.127、`compute_52`・C++11・`--fmad=false`で生成しています。再生成には開発者が用意したNVRTCを指定して`python scripts/compile_gpu_kernel.py --nvrtc-bin <binフォルダー>`を使います。整数演算、負座標、既存鉱石・空気・副ストレージの保持を検証しています。実GPUのテストは`MAPCRAFT_TEST_GPU=1`を設定して実行します。通常のテストはGPUなしで実行できます。
+
+APIの一次資料：[CUDA Driver API](https://docs.nvidia.com/cuda/cuda-driver-api/cuda_driver_api/cuda_8h_source.html)、[CUDA Best Practices](https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/)。
 
 ## 検証の範囲
 

@@ -1,4 +1,4 @@
-﻿MapCraft 0.15.0-preview（開発版）
+﻿MapCraft 0.16.0-preview（開発版）
 
 ZIPをフォルダーごと展開し、「MapCraftを起動.bat」を開いてください。
 README.md と docs フォルダーに手順があります。

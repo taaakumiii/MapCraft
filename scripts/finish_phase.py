@@ -124,7 +124,7 @@ class PhaseFinish:
         n.emit=self.emit
         while phase_counts(self.root,self.phase)['remaining']:
             if (self.root/'pause.request').exists():raise InterruptedError('区画保存後の停止要求を受け付けました。')
-            self.save(status='running',stage=f'対象地域を生成中（地盤計算{workers}並列）')
+            self.save(status='running',stage=f'対象地域を生成中（演算自動判定／CPU最大{workers}並列）')
             for attempt in range(1,6):
                 try:
                     before=phase_counts(self.root,self.phase)['completed']
@@ -185,5 +185,6 @@ if __name__=='__main__':
     job=PhaseFinish(settings,plan,args.phase,args.title,args.filename)
     try:job.run(takeover=args.takeover,workers=args.workers)
     except Exception as error:
-        job.save(status='paused' if isinstance(error,InterruptedError) else 'failed',error=str(error));traceback.print_exc();sys.exit(1)
+        job.save(status='paused' if isinstance(error,InterruptedError) else 'failed',error=str(error))
+        if not isinstance(error,InterruptedError):traceback.print_exc();sys.exit(1)
     finally:ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)

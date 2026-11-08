@@ -444,7 +444,7 @@ def run_tiles(root,limit=0,near=None):
                 from geology_backend import apply_directory
                 ref=MapReference(config['map_id'],tuple(config['bbox']),scale,1,1,projection='national_mercator',origin=ORIGIN)
                 geology_cache=Path(os.environ.get('MAPCRAFT_GEOLOGY_CACHE',BASE/'cache/geology'))
-                geology_record=apply_directory(unpack,ref,geology_cache,lambda text:emit('log',text=text),offset=spec['offset'])
+                geology_record=apply_directory(unpack,ref,geology_cache,lambda text:emit('log',text=text),offset=spec['offset'],backend=config['geology'].get('backend'))
                 atomic_json(root/'geology-last-tile.json',geology_record)
             # A stable identity keeps loot selection/dynamic properties stable on resume.
             ref=MapReference(config['map_id'],tuple(config['bbox']),scale,1,1,projection='national_mercator',origin=ORIGIN,

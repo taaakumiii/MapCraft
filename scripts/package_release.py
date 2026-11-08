@@ -8,7 +8,7 @@ import zipfile
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from version import VERSION
-APP_FILES=['scripts/finish_phase.py','scripts/finalize_furniture.py','furniture_backend.py','loot_native.py','app.py','arrival.js','autogen.py','beds.js','beds.py','core.py','geocoder.py','geology.py',
+APP_FILES=['gpu_driver.py','geology_gpu.ptx','geology_gpu.cu','scripts/finish_phase.py','scripts/finalize_furniture.py','furniture_backend.py','loot_native.py','app.py','arrival.js','autogen.py','beds.js','beds.py','core.py','geocoder.py','geology.py',
  'geology_backend.py','gps.js','jobcache.py','jobs.py','loot.js','loot.py','minimap.py','municipalities.py',
  'national_backend.py','national_pack.py','national_state.py','national_ui.py','nativepack.py','realmap.js',
  'realmap.py','regions-loader.js','survival-items.json','tracking.py','treasure.js','treasure.py','version.py']

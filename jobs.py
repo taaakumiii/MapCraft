@@ -223,7 +223,7 @@ class GenerationJob:
             if not runtime.exists():raise RuntimeError('地盤反映用のランタイムがありません。MapCraftフォルダー全体を使用してください。')
             request=self.folder/'geology-request.json'
             for world in worlds:
-                atomic_json(request,{'world':str(world),'reference':asdict(reference),'cache':str(base/'cache/geology')})
+                atomic_json(request,{'world':str(world),'reference':asdict(reference),'cache':str(base/'cache/geology'),'backend':self.data['geology'].get('backend','auto')})
                 process=subprocess.Popen([str(runtime),str(base/'geology_backend.py'),'--request',str(request)],env={**os.environ,'PYTHONIOENCODING':'utf-8'},stdout=subprocess.PIPE,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),cwd=str(base))
                 self.active_process=process;self.process_changed(process)
                 for raw in process.stdout:
