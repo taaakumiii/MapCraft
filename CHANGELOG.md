@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.1-preview
+
+- Remove the launcher batch file from source and distributions; launch MapCraft.exe directly.
+
 ## 0.16.0-preview
 
 - Optional NVIDIA driver-only geological compute, with no required GPU runtime package or CUDA Toolkit installation.

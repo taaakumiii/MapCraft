@@ -28,7 +28,7 @@ def package(executable,engine,runtime,destination):
             for path in paths(ROOT/folder):
                 if path.name=='autogen.json':continue
                 add(output,path,path.relative_to(ROOT).as_posix())
-        for name in ('README.md','LICENSE','THIRD_PARTY_NOTICES.md','CHANGELOG.md','MapCraftを起動.bat','はじめに.txt'):
+        for name in ('README.md','LICENSE','THIRD_PARTY_NOTICES.md','CHANGELOG.md','はじめに.txt'):
             add(output,ROOT/name,name)
         add(output,ROOT/'national_data/japan.poly','national_data/japan.poly')
         for path in paths(Path(runtime)):add(output,path,'engine/national-runtime/'+path.relative_to(runtime).as_posix())

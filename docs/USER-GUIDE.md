@@ -2,7 +2,7 @@
 
 ## Creator ZIP
 
-ZIP全体を、書き込み可能なフォルダーへ展開します。`MapCraftを起動.bat`で起動します。`engine`、`native_minimap`、PythonソースやJavaScriptは削除しないでください。通常のプレイヤーはCreator ZIPをインストールする必要はありません。
+ZIP全体を、書き込み可能なフォルダーへ展開します。`MapCraft.exe`で起動します。`engine`、`native_minimap`、PythonソースやJavaScriptは削除しないでください。通常のプレイヤーはCreator ZIPをインストールする必要はありません。
 
 場所の検索 → 候補を選択 → 範囲指定 → 出力形式・縮尺 → 生成、の順に進めます。詳細設定で地形・地下・宝箱・ベッドを設定できます。入力欄は0〜100%で、小数にも対応します。
 

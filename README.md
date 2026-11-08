@@ -2,7 +2,7 @@
 
 日本の地名・駅名・住所を検索して範囲を選び、Minecraftのワールドを生成するWindows向けツールです。Windows統合版では、実地図ミニマップ、到着通知、地域に応じた宝箱、ランダムなベッドをワールドに同梱します。
 
-**0.16.0-preview / 開発版**。広域生成とゲーム内表示のすべてを検証済みの安定版ではありません。
+**0.16.1-preview / 開発版**。広域生成とゲーム内表示のすべてを検証済みの安定版ではありません。
 
 NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
 
@@ -16,7 +16,7 @@ NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR 
 
 ## ワールドを作る方
 
-1. Creator ZIPをフォルダーごと展開し、`MapCraftを起動.bat` を開きます。実行ファイルだけを取り出さないでください。
+1. Creator ZIPをフォルダーごと展開し、`MapCraft.exe` を開きます。実行ファイルだけを取り出さないでください。
 2. 地名・駅名・住所を検索し、候補を選びます。「範囲を描く」でドラッグするか、検索結果の範囲を指定します。
 3. 出力形式、縮尺、必要な詳細設定を選び、生成します。
 4. 完成した `.mcworld` を開いて遊ぶか、他の方へ渡します。更新アドオンは「ゲーム内の実地図を取り込む」の「対象…」で作成できます。
