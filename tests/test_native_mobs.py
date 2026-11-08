@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from tracking import MapReference
-from ecology import compile_mobs,options,SPECIES,boss_profile
+from ecology import compile_mobs,options,SPECIES,boss_profile,reuse_plan
 try:
     import amulet_nbt as nbt
     import leveldb
@@ -67,11 +67,21 @@ class Habitats(unittest.TestCase):
         forest=compile_mobs(self.ref,{'elements':[self.way(3,{'natural':'wood'},(0,0,4096,4096))]})
         self.assertTrue(any(g['type']=='minecraft:goat' for g in forest['groups']))
 
-    def test_beacons_are_opt_in_and_require_a_boolean(self):
-        self.assertFalse(options()['boss_beacons_enabled'])
-        self.assertFalse(options({'bosses_enabled':True})['boss_beacons_enabled'])
+    def test_beacons_default_on_preserve_explicit_off_and_require_a_boolean(self):
+        self.assertTrue(options()['boss_beacons_enabled'])
+        self.assertTrue(options({'bosses_enabled':True})['boss_beacons_enabled'])
+        self.assertFalse(options({'boss_beacons_enabled':False})['boss_beacons_enabled'])
         for value in (1,'true',None):
             with self.assertRaises(ValueError):options({'boss_beacons_enabled':value})
+
+    def test_beacon_toggle_reuses_habitat_and_boss_plans(self):
+        before=options({'bosses_enabled':True,'boss_beacons_enabled':False})
+        compiled={'options':before,'groups':[{'id':'habitat'}],'bosses':[{'id':'boss'}]}
+        after=options({'bosses_enabled':True})
+        reused=reuse_plan(compiled,after)
+        self.assertEqual(reused['groups'],compiled['groups']);self.assertEqual(reused['bosses'],compiled['bosses'])
+        self.assertTrue(reused['options']['boss_beacons_enabled']);self.assertFalse(compiled['options']['boss_beacons_enabled'])
+        self.assertIsNone(reuse_plan(compiled,{**after,'density':3.}))
 
 @unittest.skipUnless(NATIVE,'Bundled native runtime required')
 class NativeMobs(unittest.TestCase):
@@ -160,12 +170,13 @@ class NativeMobs(unittest.TestCase):
 
     def test_beacon_recovers_a_native_commit_without_duplicate_actors_or_beacons(self):
         with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);self.world(root);original=Blocks.commit
-            def interrupt(blocks):
-                beacon=any(str(v.compound.get('id',''))=='Beacon' for values in blocks.entities.values() for v in values)
-                original(blocks)
+            from actor_batch import BufferedDB
+            root=Path(directory);self.world(root);original=BufferedDB.flush
+            def interrupt(database):
+                beacon=any(b'Beacon' in value for value in database.pending.values())
+                original(database)
                 if beacon:raise InterruptedError('Simulated interruption after native write')
-            with patch.object(Blocks,'commit',interrupt):
+            with patch.object(BufferedDB,'flush',interrupt):
                 with self.assertRaises(InterruptedError):bake_mobs(root,self.compiled(True),notify=lambda _:None)
             db=leveldb.LevelDB(str(root/'db'),create_if_missing=False);before=dict(db.iterate());db.close()
             report=bake_mobs(root,self.compiled(True),notify=lambda _:None);self.assertEqual(report['counts']['beacons'],1)

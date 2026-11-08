@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.19.1-preview
+
+- Enable boss-location beacons by default while preserving an explicit off setting. Boss generation remains separately configurable.
+- Reuse existing wildlife and boss plans when only the beacon flag changes; no OSM re-extraction is needed for that toggle.
+- Keep animal writes batched with beacons enabled, flushing beacon blocks before publishing their completed journal entries.
+
 ## 0.19.0-preview
 
 - Add cached NOAA ETOPO 2022 bathymetry correction for existing open water; preserve land, structures, tunnels and mapped freshwater, skip small pools, and cap depth at 60 blocks.

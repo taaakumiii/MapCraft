@@ -2,7 +2,7 @@
 
 日本の地名・駅名・住所を検索して範囲を選び、Minecraftのワールドを生成するWindows向けツールです。Windows統合版では、実地図ミニマップ、到着通知、地域に応じた宝箱、ランダムなベッド、人口に応じた村人を設定できます。
 
-**0.19.0-preview / 開発版**。広域生成とゲーム内表示のすべてを検証済みの安定版ではありません。
+**0.19.1-preview / 開発版**。広域生成とゲーム内表示のすべてを検証済みの安定版ではありません。
 
 NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
 

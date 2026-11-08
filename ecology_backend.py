@@ -159,6 +159,8 @@ def bake_beacon(blocks,plan,saved,journal,used):
     # Bedrock uses lowercase primary/secondary. Zero leaves effects unselected.
     blocks.entity(x,y,z,'Beacon',identity,{'primary':nbt.IntTag(0),'secondary':nbt.IntTag(0)})
     blocks.commit()
+    flush=getattr(blocks.db,'flush',None)
+    if flush:flush()
     journal.execute("UPDATE beacons SET state='placed' WHERE id=?",(plan['id'],));journal.commit()
     used.add((x,z));return 'placed'
 
@@ -174,7 +176,7 @@ def bake_mobs(world,compiled,*,state_path=None,notify=print):
     beacons_enabled=compiled['options'].get('boss_beacons_enabled',False) is True
     db=None;counts={'animals':0,'bosses':0,'end_portals':0,'reward_chests':0,'existing':0,'blocked':0,'beacons':0,'beacons_blocked':0}
     try:
-        db=BufferedDB(leveldb.LevelDB(str(world/'db'),create_if_missing=False),enabled=not beacons_enabled);blocks=Blocks(db,(0,0));used=set();staged=[]
+        db=BufferedDB(leveldb.LevelDB(str(world/'db'),create_if_missing=False));blocks=Blocks(db,(0,0));used=set();staged=[]
         def flush():
             db.flush()
             journal.executemany("UPDATE actors SET state='placed' WHERE id=?",[(identity,) for identity in staged]);journal.commit();staged.clear()
@@ -250,7 +252,7 @@ def bake_mobs(world,compiled,*,state_path=None,notify=print):
                 blocks.entity(cx,cy,cz,'Chest',plan['id']+'/reward',{'Findable':nbt.ByteTag(0),'Items':reward_loot(plan)})
                 counts['reward_chests']+=1
             blocks.commit();staged.append(plan['id'])
-            if len(staged)>=128 or beacons_enabled:flush()
+            if len(staged)>=128 or (beacons_enabled and plan.get('boss')):flush()
             if beacons_enabled and plan.get('boss'):
                 outcome=bake_beacon(blocks,plan,saved,journal,used)
                 counts['beacons_blocked' if outcome=='blocked' else 'beacons']+=1
@@ -268,7 +270,7 @@ def bake_mobs(world,compiled,*,state_path=None,notify=print):
 def ensure_project_ecology(root,notify=print):
     import national_backend as n
     from tracking import MapReference
-    from ecology import options,compile_mobs
+    from ecology import options,compile_mobs,reuse_plan
     root=Path(root);config=n.load_project(root);settings=options(config.get('mobs',{'wildlife_enabled':False,'bosses_enabled':False}))
     if not settings['wildlife_enabled'] and not settings['bosses_enabled']:return
     ref=MapReference(config['map_id'],tuple(config['bbox']),config['scale'],1,1,projection=config['projection'],origin=tuple(config['origin']))
@@ -276,16 +278,17 @@ def ensure_project_ecology(root,notify=print):
     with n.connect(root/'queue.sqlite') as queue,n.connect(config['index']) as source:
         tiles=queue.execute("SELECT tx,tz FROM tiles WHERE state='done' ORDER BY tz,tx").fetchall()
         for i,(tx,tz) in enumerate(tiles):
-            path=root/'tile_data'/f'{tx}_{tz}.json';data=json.loads(path.read_text(encoding='utf-8'));compiled=data.get('ecology')
-            if compiled is None or compiled.get('options')!=settings:
+            path=root/'tile_data'/f'{tx}_{tz}.json';data=json.loads(path.read_text(encoding='utf-8'));compiled=reuse_plan(data.get('ecology'),settings)
+            if compiled is None:
                 try:
                     from parallel_plans import cached
                     prepared=cached(root,config,data,path.name)
                 except ImportError:prepared=None
-                if prepared and prepared.get('ecology',{}).get('options')==settings:compiled=prepared['ecology']
+                cached_plan=reuse_plan(prepared.get('ecology') if prepared else None,settings)
+                if cached_plan is not None:compiled=cached_plan
                 else:
                     size=config['tile'];compiled=compile_mobs(ref,n.extract(source,data['bbox']),settings,owned_bounds=(tx*size,tz*size,(tx+1)*size,(tz+1)*size))
-                data['ecology']=compiled;n.atomic_json(path,data)
+            if data.get('ecology')!=compiled:data['ecology']=compiled;n.atomic_json(path,data)
             result['groups'].extend(compiled['groups']);result['bosses'].extend(compiled['bosses'])
             if i%20==0:notify(f'動物とボスの配置計画: {i+1:,}/{len(tiles):,} 区画')
     for key in ('groups','bosses'):result[key]=list({p['id']:p for p in result[key]}.values())

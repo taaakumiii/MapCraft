@@ -2,7 +2,7 @@
 import hashlib
 import math
 
-DEFAULT={'wildlife_enabled':True,'density':2.,'bosses_enabled':False,'boss_min_area':25.,'boss_beacons_enabled':False}
+DEFAULT={'wildlife_enabled':True,'density':2.,'bosses_enabled':False,'boss_min_area':25.,'boss_beacons_enabled':True}
 SPECIES={
     'beach': [('turtle',5),('rabbit',1)],
     'ocean': [('cod',5),('squid',3),('dolphin',1)],
@@ -37,6 +37,13 @@ def options(value=None):
 
 def fraction(key):return int.from_bytes(hashlib.sha256(key.encode()).digest()[:8],'big')/2**64
 def identity(key):return hashlib.sha256(key.encode()).hexdigest()[:24]
+
+def reuse_plan(compiled,settings):
+    if compiled is None:return None
+    # Beacons affect saved blocks, not habitat selection or boss locations.
+    without_beacons=lambda profile:{k:v for k,v in profile.items() if k!='boss_beacons_enabled'}
+    if without_beacons(compiled.get('options',{}))!=without_beacons(settings):return None
+    return {**compiled,'options':dict(settings)}
 
 def compile_mobs(reference,payload,settings=None,*,owned_bounds=None):
     from shapely.geometry import Polygon,LineString,Point,box
