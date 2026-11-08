@@ -211,7 +211,7 @@ def read_poly(path):
     if holes:geometry=geometry.difference(unary_union(holes))
     return geometry
 
-def create_project(root,index,scale,poly,bbox=None,spawn=None,treasure=None,tile=TILE,beds=None,geology=None,villagers=None):
+def create_project(root,index,scale,poly,bbox=None,spawn=None,treasure=None,tile=TILE,beds=None,geology=None,villagers=None,mobs=None,include_navigation=False):
     from shapely.geometry import box
     from shapely.ops import transform
     from shapely.prepared import prep
@@ -222,6 +222,9 @@ def create_project(root,index,scale,poly,bbox=None,spawn=None,treasure=None,tile
     info=index_info(index)
     from villagers import options as villager_options
     villagers=villager_options(villagers)
+    from ecology import options as mob_options
+    mobs=mob_options(mobs)
+    if not isinstance(include_navigation,bool):raise ValueError('ミニマップ設定が不正です。')
     with connect(index) as db:
         prefectures=[unpacked(row[0]) for row in db.execute('SELECT data FROM prefectures')]
     coverage=read_poly(poly)
@@ -270,7 +273,7 @@ def create_project(root,index,scale,poly,bbox=None,spawn=None,treasure=None,tile
             'bbox':bbox or [south,west,north,east],'spawn':spawn,'spawn_policy':'tokyo_station' if scope_mode=='national' else 'selected_area',
             'scope_mode':scope_mode,'total':total,'created':time.time(),
             'mode':'geo-only','ground_level':64,'fillground':True,'furniture_baked':True,'treasure':treasure or {'enabled':True,'probability':.25},
-            'beds':beds or {'enabled':True,'probability':.25},'geology':geology if geology is not None else {'enabled':True},'villagers':villagers}
+            'beds':beds or {'enabled':True,'probability':.25},'geology':geology if geology is not None else {'enabled':True},'villagers':villagers,'mobs':mobs,'include_navigation':include_navigation}
     atomic_json(root/'project.json',config)
     emit('planned',tiles=total,chunks=total*(tile//16)**2,project=str(root))
     return config
@@ -484,7 +487,13 @@ def export_world(root,destination):
     ensure_project_villagers(root,lambda text:emit('log',text=text))
     # Export a snapshot, leaving the persistent private database extensible.
     from national_pack import install_pack
-    install_pack(root,config)
+    if config.get('include_navigation',True):install_pack(root,config)
+    else:
+        from tracking import MapReference
+        reference=MapReference(config['map_id'],tuple(config['bbox']),config['scale'],1,1,projection=config['projection'],origin=tuple(config['origin']),furniture_baked=True)
+        atomic_json(root/'world/mapcraft_tracking.json',asdict(reference))
+    from ecology_backend import ensure_project_ecology
+    ensure_project_ecology(root,lambda text:emit('log',text=text))
     destination=Path(destination);temporary=destination.with_suffix('.exporting')
     try:
         with zipfile.ZipFile(temporary,'w',zipfile.ZIP_DEFLATED,allowZip64=True) as archive:
@@ -504,7 +513,7 @@ def main():
         with project_lock(Path(data['index']).resolve().parent):index_pbf(data['source'],data['index'],Path(data['project'])/'pause.request')
         return
     with project_lock(data['project']):
-        if args.action=='create':create_project(data['project'],data['index'],data['scale'],data['poly'],data.get('bbox'),data.get('spawn'),data.get('treasure'),beds=data.get('beds'),geology=data.get('geology'),villagers=data.get('villagers'))
+        if args.action=='create':create_project(data['project'],data['index'],data['scale'],data['poly'],data.get('bbox'),data.get('spawn'),data.get('treasure'),beds=data.get('beds'),geology=data.get('geology'),villagers=data.get('villagers'),mobs=data.get('mobs'),include_navigation=data.get('include_navigation',False))
         elif args.action=='run':run_tiles(data['project'],data.get('limit',0),data.get('near'))
         elif args.action=='status':emit('status',**status(data['project']))
         elif args.action=='export':export_world(data['project'],data['destination'])

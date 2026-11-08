@@ -125,7 +125,7 @@ class NationalWindow:
             point=self.app.search_place
             spawn=[point['lat'],point['lon']] if point else list(self.app.center)
             self.start('create',{'index':self.index.get(),'poly':str(self.base/'national_data/japan.poly'),
-                'scale':SCALES[self.scale.get()],'bbox':bbox,'spawn':spawn,'treasure':options,'beds':beds,'villagers':self.app.villager_options(),'geology':{'enabled':self.app.geology_enabled.get(),'backend':'auto' if self.app.gpu_enabled.get() else 'cpu'}})
+                'scale':SCALES[self.scale.get()],'bbox':bbox,'spawn':spawn,'treasure':options,'beds':beds,'villagers':self.app.villager_options(),'mobs':self.app.mob_options(),'include_navigation':self.app.include_navigation.get(),'geology':{'enabled':self.app.geology_enabled.get(),'backend':'auto' if self.app.gpu_enabled.get() else 'cpu'}})
         except Exception as error:messagebox.showerror('全国プロジェクト',str(error),parent=self.window)
 
     def run(self,limit):

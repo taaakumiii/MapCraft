@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.18.0-preview
+
+- Bake habitat-appropriate vanilla animals into the world, with an adjustable density and no ecosystem script/mod/pack dependency.
+- Optional area-ranked vanilla bosses and native rare-item reward chests at mapped Shinto/Buddhist/cemetery sites, including small shrines. Building footprints can provide an explicitly approximate area fallback.
+- Rank thresholds: Piglin Brute <2,000m², Elder Guardian <10,000m², Warden <50,000m², Wither <200,000m²; larger sites receive a vanilla End portal for the normal End dragon fight. Direct bosses receive area-scaled health. Elder Guardians receive a small water basin.
+- Persist vanilla component-group state for adult animals and brutes without the overworld conversion sensor; keep standard entity AI and vanilla combat behavior. No custom HP bars, loot locks or regional respawn scripts.
+- Journal stable entity/reward identities to prevent generator retries from duplicating or refilling output. Ordinary chest balance is unchanged; dedicated boss rewards use their own area-tiered table.
+- Navigation is now opt-in for newly created ordinary/national projects; pack-free outputs retain animals, bosses, rewards, villagers and furniture. Existing saved project options remain unchanged.
+
 ## 0.17.0-preview
 
 - Optional native vanilla villagers in residential interiors, apportioned from municipal population and generated area. Default off; adjustable 100–100,000 real residents per villager (1,000 when enabled).

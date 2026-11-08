@@ -288,7 +288,7 @@ def strip_packs(archive,output):
             while block:=src.read(1024*1024):dst.write(block)
     for name,data in retained.items():output.writestr(name,data)
 
-def bake_archive(path,chests,beds,*,vanilla=False,reference=None,notify=print,villagers=None):
+def bake_archive(path,chests,beds,*,vanilla=False,reference=None,notify=print,villagers=None,ecology=None):
     path=Path(path).resolve()
     with tempfile.TemporaryDirectory(prefix='.furniture-',dir=path.parent) as temporary:
         root=Path(temporary)
@@ -307,7 +307,10 @@ def bake_archive(path,chests,beds,*,vanilla=False,reference=None,notify=print,vi
         if villagers is not None and villagers['options']['enabled']:
             from villagers_backend import bake_villagers
             report={**report,'villagers':bake_villagers(root,villagers,notify=notify)}
-        for pattern in ('mapcraft_furniture-state.sqlite*','mapcraft_villagers-state.sqlite*'):
+        if ecology is not None:
+            from ecology_backend import bake_mobs
+            report={**report,'ecology':bake_mobs(root,ecology,notify=notify)}
+        for pattern in ('mapcraft_furniture-state.sqlite*','mapcraft_villagers-state.sqlite*','mapcraft_ecology-state.sqlite*'):
             for file in root.glob(pattern):file.unlink()
         tracking=root/'mapcraft_tracking.json'
         if tracking.exists() or reference is not None:
@@ -391,4 +394,9 @@ if __name__=='__main__':
         payload=json.loads(Path(request['osm']).read_text(encoding='utf-8'))
         boundaries=json.loads(Path(request['boundaries']).read_text(encoding='utf-8'))
         villagers=compile_villagers(reference,payload,boundaries,request['villagers'],notify=print)
-    print(json.dumps(bake_archive(request['world'],plans['chests'],plans['beds'],vanilla=request.get('vanilla',False),reference=reference,villagers=villagers),ensure_ascii=True),flush=True)
+    ecology=None
+    if request.get('mobs') is not None:
+        from ecology import compile_mobs
+        payload=json.loads(Path(request['osm']).read_text(encoding='utf-8'))
+        ecology=compile_mobs(reference,payload,request['mobs'])
+    print(json.dumps(bake_archive(request['world'],plans['chests'],plans['beds'],vanilla=request.get('vanilla',False),reference=reference,villagers=villagers,ecology=ecology),ensure_ascii=True),flush=True)

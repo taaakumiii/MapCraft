@@ -13,6 +13,7 @@
 - `geology.py` / `geology_backend.py`：GSJ/GSI参照と、普通の石だけを変更する地質用の後処理。
 - `volcanoes.py` / `active-volcanoes.json`：気象庁の火山代表点とゲーム用の地下・宝箱調整。CPU/GPU共通の追加処理は元の普通の石だけを変更します。
 - `villagers.py` / `villagers_backend.py` / `municipal-population.json`：実人口の面積按分、住宅内候補、通常の村人Actor・digp保存と再試行ジャーナル。出生地や建物別居住者の再現ではありません。
+- `ecology.py` / `ecology_backend.py`：OSMの生息地・施設面積による配置計画、通常のActor・digp・攻略チェスト・水槽・エンド入口の事前保存。独自の実行時パックは使いません。`tests/test_native_mobs.py`でNative DB、面積ランク、宝箱、再試行を検証します。
 - `autogen.py`：実験的な無人処理。関東優先の等倍生成、再試行、容量を予約した出力。
 
 `version.py`にアプリとパックのバージョンを定義します。更新パックをMinecraftに再取り込みさせる場合はパックバージョンを進めます。配置済み家具の永続IDは変更しないでください。変更すると補充・重複につながります。

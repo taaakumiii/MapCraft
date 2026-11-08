@@ -242,7 +242,7 @@ class GenerationJob:
             self.stage('furniture')
         for world in worlds:
             atomic_json(request,{'world':str(world),'reference':asdict(reference),'osm':str(self.folder/'osm.json'),
-                                 'vanilla':not self.data.get('include_navigation',True),'villagers':self.data.get('villagers'),
+                                 'vanilla':not self.data.get('include_navigation',True),'villagers':self.data.get('villagers'),'mobs':self.data.get('mobs'),
                                  'boundaries':str(boundaries) if boundaries is not None else None})
             process=subprocess.Popen([str(runtime),str(base/'furniture_backend.py'),'--request',str(request)],env={**os.environ,'PYTHONIOENCODING':'utf-8'},stdout=subprocess.PIPE,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),cwd=str(base))
             self.active_process=process;self.process_changed(process)

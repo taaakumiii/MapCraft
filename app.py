@@ -54,10 +54,11 @@ class App:
         self.mode = tk.StringVar(value=next(iter(MODES))); self.height = tk.StringVar(value='1.0')
         self.vanilla = tk.BooleanVar(value=True); self.overture = tk.BooleanVar(value=True)
         self.trees = tk.BooleanVar(value=True); self.interaction = tk.StringVar(value='select')
-        self.fillground=tk.BooleanVar(value=True);self.geology_enabled=tk.BooleanVar(value=True);self.gpu_enabled=tk.BooleanVar(value=True);self.include_navigation=tk.BooleanVar(value=True)
+        self.fillground=tk.BooleanVar(value=True);self.geology_enabled=tk.BooleanVar(value=True);self.gpu_enabled=tk.BooleanVar(value=True);self.include_navigation=tk.BooleanVar(value=False)
         self.treasure_enabled=tk.BooleanVar(value=True);self.treasure_probability=tk.StringVar(value='25')
         self.beds_enabled=tk.BooleanVar(value=True);self.beds_probability=tk.StringVar(value='25')
         self.villagers_enabled=tk.BooleanVar(value=False);self.villagers_ratio=tk.StringVar(value='1000')
+        self.wildlife_enabled=tk.BooleanVar(value=True);self.wildlife_density=tk.StringVar(value='100');self.bosses_enabled=tk.BooleanVar(value=False)
         self.output = tk.StringVar(value=str(BASE/'worlds')); self.coordinates = tk.StringVar()
         self.style(); self.layout(); self.update_selection()
         root.after(200, self.fit); root.after(100, self.poll)
@@ -189,7 +190,7 @@ class App:
         self.label(pane,'速度を比較して速い方式を使用。GPU未対応・利用不可・\nCPUの方が速い場合は、CPUで処理します。',muted=True)
         ttk.Separator(pane).pack(fill='x',pady=12)
         ttk.Checkbutton(pane,text='実地図ミニマップ・到着通知を同梱する',variable=self.include_navigation).pack(anchor='w',pady=(4,2))
-        self.label(pane,'オフでも宝箱・ベッドは生成時に配置します。\n表示用アドオンなしのマップとして遊べます。',muted=True)
+        self.label(pane,'オフでも宝箱・ベッド・村人・動物・ボスを利用できます。\n通常の高さなら追加パックなしのマップを出力します。',muted=True)
         self.label(pane,'地域の宝箱（Windows統合版）',bold=True)
         probability=ttk.Spinbox(pane,from_=0,to=100,increment=1,textvariable=self.treasure_probability,width=8)
         def treasure_changed():probability.configure(state='normal' if self.treasure_enabled.get() else 'disabled')
@@ -213,6 +214,15 @@ class App:
         self.label(pane,'実人口何人につき村人1人（小さいほど多く生成）',muted=True)
         resident_ratio.pack(anchor='w');residents_changed()
         self.label(pane,'初期値はオフ。有効時は実人口1,000人につき1人。\n2026年1月の市区町村人口を生成面積で按分します。\n都会は多く、田舎は少なく、安全な住宅内だけに配置。\n通常の村人なので表示用アドオンなしでも遊べます。',muted=True,pady=5)
+        ttk.Separator(pane).pack(fill='x',pady=10)
+        self.label(pane,'動物の生息地とボス（Windows統合版）',bold=True)
+        density=ttk.Spinbox(pane,from_=0,to=300,increment=25,textvariable=self.wildlife_density,width=8)
+        def wildlife_changed():density.configure(state='normal' if self.wildlife_enabled.get() else 'disabled')
+        ttk.Checkbutton(pane,text='環境に合った動物を出現させる（標準オン）',variable=self.wildlife_enabled,command=wildlife_changed).pack(anchor='w',pady=(7,4))
+        self.label(pane,'動物の多さ（%・標準100、0〜300）',muted=True);density.pack(anchor='w');wildlife_changed()
+        self.label(pane,'海辺はカメ、山はヤギやウサギ、森林はキツネなど。\n生成時に足場・水深・空きを確認して通常モブを保存。\n追加MOD・パック不要。独自の再出現処理はありません。',muted=True,pady=5)
+        ttk.Checkbutton(pane,text='神社・寺院・墓地にボスと攻略宝箱を配置する',variable=self.bosses_enabled).pack(anchor='w',pady=(7,4))
+        self.label(pane,'ボスは標準オフ。面積に応じブルート、エルダー、\nウォーデン、ウィザーへ段階的に強化します。\n最大規模はエンドへの入口と宝箱を設置。\nドラゴンは通常のエンドで戦います。\nウィザー等の攻撃・地形破壊は通常の挙動です。\n討伐後の自動復活や宝箱の補充はありません。',muted=True,pady=5)
         ttk.Button(dialog,text='閉じる',command=dialog.destroy).pack(fill='x',padx=22,pady=(8,16))
         def bind_scroll(widget):
             widget.bind('<MouseWheel>',lambda event:canvas.yview_scroll(-int(event.delta/120),'units'),add='+')
@@ -245,6 +255,12 @@ class App:
         try:ratio=float(self.villagers_ratio.get())
         except ValueError:raise ValueError('村人の人数比率を数値で入力してください。')
         return options({'enabled':self.villagers_enabled.get(),'people_per_villager':ratio})
+
+    def mob_options(self):
+        from ecology import options
+        try:density=float(self.wildlife_density.get())/100
+        except ValueError:raise ValueError('動物の多さを0〜300%で入力してください。')
+        return options({'wildlife_enabled':self.wildlife_enabled.get(),'density':density,'bosses_enabled':self.bosses_enabled.get()})
 
     def search(self):
         if self.searching:return
@@ -452,6 +468,7 @@ class App:
             treasure=self.treasure_options()
             beds=self.bed_options()
             villagers=self.villager_options()
+            mobs=self.mob_options()
             output_text=self.output.get().strip()
             if not output_text:raise ValueError('保存先を指定してください。')
             parent=Path(output_text).expanduser().resolve()
@@ -470,7 +487,7 @@ class App:
             self.last_folder=folder;self.last_world=None
             manifest={'app':'MapCraft '+VERSION,'job_schema':1,'engine':'Arnis v3.4.0','bbox':bbox,'scale':scale,'edition':self.job_edition,'fillground':self.fillground.get(),
                       'command':args,'status':'running','data_license':'https://www.openstreetmap.org/copyright',
-                      'scope':'User-selected bounding rectangle','treasure':treasure,'beds':beds,'villagers':villagers,'geology':{'enabled':self.geology_enabled.get(),'backend':'auto' if self.gpu_enabled.get() else 'cpu'},'include_navigation':self.include_navigation.get()}
+                      'scope':'User-selected bounding rectangle','treasure':treasure,'beds':beds,'villagers':villagers,'mobs':mobs,'geology':{'enabled':self.geology_enabled.get(),'backend':'auto' if self.gpu_enabled.get() else 'cpu'},'include_navigation':self.include_navigation.get()}
             atomic_json(folder/'generation.json',manifest)
             self.launch_job(folder,manifest)
         except Exception as e:messagebox.showerror('生成を開始できません',str(e))
@@ -501,6 +518,7 @@ class App:
             self.vanilla.set('--vanilla-height' in args);self.fillground.set('--fillground' in args);self.geology_enabled.set(data.get('geology',{}).get('enabled',False));self.include_navigation.set(data.get('include_navigation',True))
             self.gpu_enabled.set(data.get('geology',{}).get('backend','auto')!='cpu')
             self.villagers_enabled.set(data.get('villagers',{}).get('enabled',False));self.villagers_ratio.set(str(data.get('villagers',{}).get('people_per_villager',1000)))
+            mobs=data.get('mobs',{});self.wildlife_enabled.set(mobs.get('wildlife_enabled',False));self.wildlife_density.set(str(mobs.get('density',1)*100));self.bosses_enabled.set(mobs.get('bosses_enabled',False))
             for kind,enabled,probability in [('treasure',self.treasure_enabled,self.treasure_probability),('beds',self.beds_enabled,self.beds_probability)]:
                 enabled.set(data.get(kind,{}).get('enabled',True));probability.set(f"{data.get(kind,{}).get('probability',.25)*100:g}")
             self.update_selection();self.fit()
