@@ -7,7 +7,7 @@ from treasure import compile_treasure
 def compile_beds(reference,payload):
     options=replace(reference,treasure_enabled=reference.beds_enabled,
                     treasure_probability=reference.beds_probability)
-    return compile_treasure(options,payload,namespace='beds-v1',classify=False)
+    return compile_treasure(options,payload,namespace='beds-v1',classify=False,per_floor=False)
 
 def prepare_beds(reference,root):
     root=Path(root)

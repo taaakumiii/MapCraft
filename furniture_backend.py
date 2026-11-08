@@ -23,10 +23,10 @@ import numpy as np
 from geology_backend import decode,encode
 from loot_native import loot_for,item_nbt
 from tracking import MapReference
-VERSION=1
+VERSION=2
 DIRECTIONS=[(0,1),(-1,0),(0,-1),(1,0)]
 NATURAL=re.compile(r'(?:leaves|log|wood|stem|hyphae|grass|dirt|sand|gravel|water|lava|snow|ice|vine|flower|sapling|mushroom|bamboo|cactus|air)$')
-STRUCTURE=re.compile(r'(?:planks|bricks?|brick_block|stonebrick|concrete|terracotta|wool|glass|quartz|sandstone|polished_|smooth_|purpur|prismarine|copper|tuff_brick|deepslate_tile|blackstone)')
+STRUCTURE=re.compile(r'(?:planks|bricks?|brick_block|stonebrick|concrete|terracotta|wool|glass|quartz|sandstone|polished_|smooth_|purpur|prismarine|copper|tuff_brick|deepslate_tile|blackstone|cobblestone|cobbled_deepslate)')
 EXCLUDE=re.compile(r'(?:chest|barrel|torch|lantern|carpet|rail|ladder|fence|button|pressure_plate|trapdoor|door|pane|bars)$')
 
 class MissingChunk(Exception):pass
@@ -104,33 +104,89 @@ class Blocks:
         self.dirty.clear();self.entity_dirty.clear();self.entities.clear()
         while len(self.cache)>256:self.cache.popitem(last=False)
 
-def enclosed(blocks,plan,x,y,z,roof=False):
+def legacy_structural(name):return structural(name) and not re.search(r'(?:cobblestone|cobbled_deepslate)',name)
+
+def enclosed(blocks,plan,x,y,z,roof=False,legacy=False):
+    is_structure=legacy_structural if legacy else structural
     west,north,east,south=plan['bounds']
     if roof:
         if not west<x<east or not north<z<south:return False
         for height in range(y+2,min(y+18,511)):
             name=blocks.get(x,height,z)
             if name!='minecraft:air':
-                if not structural(name):return False
+                if not is_structure(name):return False
                 break
         else:return False
     for dx,dz in DIRECTIONS:
         limit=min(64,east-x+2 if dx>0 else x-west+2 if dx<0 else south-z+2 if dz>0 else z-north+2)
-        if not any(structural(name:=blocks.get(x+dx*step,y+1,z+dz*step)) or re.search(r'(?:door|glass_pane|iron_bars)$',name) for step in range(1,max(1,limit)+1)):return False
+        if not any(is_structure(name:=blocks.get(x+dx*step,y+1,z+dz*step)) or re.search(r'(?:door|glass_pane|iron_bars)$',name) for step in range(1,max(1,limit)+1)):return False
     return True
 
-def indoor(blocks,plan,point):
+def indoor_floors(blocks,plan,point,legacy=False):
+    is_structure=legacy_structural if legacy else structural
     x,z=point;ceiling=None;solid=0
     for y in range(blocks.top(x,z),-63,-1):
         name=blocks.get(x,y,z)
         if name=='minecraft:air':solid=0;continue
         solid+=1
-        if solid>=8:break
-        if support(name) and ceiling is not None and 3<=ceiling-y<=18:
-            if blocks.get(x,y+1,z)=='minecraft:air' and blocks.get(x,y+2,z)=='minecraft:air' and enclosed(blocks,plan,x,y+1,z):
-                if not any(re.search(r'(?:chest|barrel|door)$',blocks.get(x+dx,y+1,z+dz)) for dx,dz in DIRECTIONS):return [x,y+1,z]
-        ceiling=y if structural(name) else None
-    return None
+        # Thick gabled roofs are still above valid upper rooms. Only stop in
+        # natural ground; the legacy scan retains its original cutoff for IDs.
+        if solid>=8 and (legacy or not structural(name)):break
+        if support(name) and is_structure(name) and ceiling is not None and 3<=ceiling-y<=18:
+            if blocks.get(x,y+1,z)=='minecraft:air' and blocks.get(x,y+2,z)=='minecraft:air' and enclosed(blocks,plan,x,y+1,z,legacy=legacy):
+                if not any(re.search(r'(?:chest|barrel|door)$',blocks.get(x+dx,y+1,z+dz)) for dx,dz in DIRECTIONS):yield [x,y+1,z]
+        ceiling=y if is_structure(name) else None
+
+def indoor(blocks,plan,point):
+    if 'floor_y' not in plan:return next(indoor_floors(blocks,plan,point),None)
+    x,z=point;y=plan['floor_y']
+    if blocks.get(x,y,z)!='minecraft:air' or blocks.get(x,y+1,z)!='minecraft:air' or not support(blocks.get(x,y-1,z)):return None
+    if not enclosed(blocks,plan,x,y,z,roof=True):return None
+    if any(re.search(r'(?:chest|barrel|door)$',blocks.get(x+dx,y,z+dz)) for dx,dz in DIRECTIONS):return None
+    return [x,y,z]
+
+def generated_chests(blocks,plan):
+    found={};seen=set()
+    for x,z in plan['points']:
+        try:key,entities=blocks.block_entities(x,z)
+        except MissingChunk:continue
+        if key in seen:continue
+        seen.add(key)
+        for entity in entities:
+            body=entity.compound;identity=str(body.get('MapCraftFurnitureId',''))
+            if str(body.get('id',''))!='Chest':continue
+            if identity!=plan['id'] and not identity.startswith(plan['id']+'/floor/'):continue
+            pos=[int(body[k]) for k in ('x','y','z')];pos[0]+=blocks.offset[0];pos[2]+=blocks.offset[1]
+            if blocks.get(*pos)=='minecraft:chest':found[identity]=pos
+    return found
+
+def floor_plans(blocks,plan,counts):
+    if plan.get('placement')!='per_floor':return [plan]
+    found={};existing=generated_chests(blocks,plan)
+    # Retain the original top/first indoor floor's ID and draw. This preserves
+    # old generator chests without refilling them or biasing that floor's odds.
+    anchor=existing.get(plan['id'],[None,None,None])[1]
+    if anchor is None:
+        for point in plan['points']:
+            try:previous=next(indoor_floors(blocks,plan,point,legacy=True),None)
+            except MissingChunk:continue
+            if previous is not None:anchor=previous[1];break
+    for point in plan['points']:
+        try:
+            for x,y,z in indoor_floors(blocks,plan,point):
+                if anchor is None:anchor=y
+                found.setdefault(y,[]).append([x,z])
+        except MissingChunk:counts['incomplete']+=1
+    for position in existing.values():found.setdefault(position[1],[]).append([position[0],position[2]])
+    counts['floors_detected']+=len(found);result=[]
+    for y,points in sorted(found.items()):
+        identity=plan['id'] if y==anchor else plan['id']+'/floor/'+str(y)
+        digest=bytes.fromhex(plan['id']) if y==anchor else hashlib.sha256(identity.encode()).digest()
+        if int.from_bytes(digest[:4],'big')/2**32>=plan['probability']:continue
+        counts['floors_selected']+=1
+        seed=plan['seed'] if y==anchor else int.from_bytes(digest[12:16],'big') or 1
+        result.append({**plan,'id':identity,'floor_y':y,'points':points,'seed':seed,'existing_position':existing.get(identity)})
+    return result
 
 def bed_clear(blocks,plan,foot,direction):
     x,y,z=foot;dx,dz=DIRECTIONS[direction];head=[x+dx,y,z+dz]
@@ -143,17 +199,30 @@ def bed_clear(blocks,plan,foot,direction):
 def bake_directory(world,chests,beds,*,offset=(0,0),state_path=None,owned_bounds=None,notify=print):
     world=Path(world);state_path=Path(state_path) if state_path else world/'mapcraft_furniture-state.sqlite'
     journal=sqlite3.connect(state_path);journal.execute('PRAGMA journal_mode=WAL')
-    journal.execute('CREATE TABLE IF NOT EXISTS plans(kind TEXT,id TEXT,status TEXT,data TEXT,PRIMARY KEY(kind,id))');journal.commit()
-    db=leveldb.LevelDB(str(world/'db'),create_if_missing=False);blocks=Blocks(db,offset);counts={'chests':0,'beds':0,'skipped':0,'existing':0,'incomplete':0}
+    journal.execute('CREATE TABLE IF NOT EXISTS plans(kind TEXT,id TEXT,status TEXT,data TEXT,PRIMARY KEY(kind,id))')
+    journal.execute('CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT)')
+    schema=journal.execute("SELECT value FROM meta WHERE key='furniture_schema'").fetchone()
+    if schema is None or int(schema[0])<VERSION:
+        # A previous indoor scan may have rejected a thick roof. Retry those
+        # empty locations, while retaining every placed/recovered inventory.
+        journal.execute("DELETE FROM plans WHERE kind='chest' AND status IN ('skipped','blocked')")
+        journal.execute("INSERT OR REPLACE INTO meta VALUES('furniture_schema',?)",(str(VERSION),))
+    journal.commit()
+    db=leveldb.LevelDB(str(world/'db'),create_if_missing=False);blocks=Blocks(db,offset);counts={'chests':0,'beds':0,'skipped':0,'existing':0,'incomplete':0,'floors_detected':0,'floors_selected':0}
     pool=json.loads((BASE/'survival-items.json').read_text(encoding='utf-8'))['items']
     try:
-        for kind,plans in [('chest',chests),('bed',beds)]:
+        def expand():
+            for plan in chests:yield from floor_plans(blocks,plan,counts)
+        for kind,plans in [('chest',expand()),('bed',beds)]:
             for number,plan in enumerate(plans):
                 record=journal.execute('SELECT status,data FROM plans WHERE kind=? AND id=?',(kind,plan['id'])).fetchone()
                 if record and record[0] not in ('placing','incomplete'):
                     counts['existing']+=1
                     if record[0] in ('placed','recovered'):counts['chests' if kind=='chest' else 'beds']+=1
                     continue
+                if kind=='chest' and plan.get('existing_position'):
+                    journal.execute('INSERT OR REPLACE INTO plans VALUES(?,?,?,?)',(kind,plan['id'],'recovered',json.dumps({'position':plan['existing_position']})))
+                    journal.commit();counts['existing']+=1;counts['chests']+=1;continue
                 position=None;direction=None;head=None;missing=False
                 def owned(p):
                     return owned_bounds is None or (owned_bounds[0]<=p[0]<owned_bounds[2] and owned_bounds[1]<=p[2]<owned_bounds[3])
@@ -228,8 +297,13 @@ def bake_archive(path,chests,beds,*,vanilla=False,reference=None,notify=print):
                 if not (root/item.filename).resolve().is_relative_to(root):raise ValueError('Invalid archive member path')
             archive.extractall(root)
         marker=root/'mapcraft_furniture.json'
-        if marker.exists() and json.loads(marker.read_text(encoding='utf-8')).get('version')==VERSION:report=json.loads(marker.read_text(encoding='utf-8'))
-        else:report=bake_directory(root,chests,beds,notify=notify)
+        previous=json.loads(marker.read_text(encoding='utf-8')) if marker.exists() else {}
+        if previous.get('version')==VERSION:report=previous
+        else:
+            report=bake_directory(root,chests,[] if previous.get('version',0)>=1 else beds,notify=notify)
+            if previous.get('version',0)>=1:
+                report['counts']['beds']=previous.get('counts',previous.get('totals',{})).get('beds',0)
+                marker.write_text(json.dumps(report),encoding='utf-8')
         for file in root.glob('mapcraft_furniture-state.sqlite*'):file.unlink()
         tracking=root/'mapcraft_tracking.json'
         if tracking.exists() or reference is not None:
@@ -257,21 +331,44 @@ def ensure_project_furniture(root,notify=print):
     if marker.exists():
         previous=json.loads(marker.read_text(encoding='utf-8'))
         if previous.get('version')==VERSION and previous.get('signature')==signature and previous.get('totals',{}).get('tiles')==len(tiles):
-            if not config.get('furniture_baked'):
-                config['furniture_baked']=True;n.atomic_json(root/'project.json',config)
+            if not config.get('furniture_baked') or config.get('furniture_schema')!=VERSION:
+                config['furniture_baked']=True;config['furniture_schema']=VERSION;n.atomic_json(root/'project.json',config)
             return previous
     for index,(tx,tz) in enumerate(tiles):
         path=root/'tile_data'/f'{tx}_{tz}.json';data=json.loads(path.read_text(encoding='utf-8'))
         report=data.get('furniture',{})
         if report.get('version')!=VERSION:
-            report=bake_directory(root/'world',data['treasure']['plans'],data.get('beds',{}).get('plans',[]),
+            from treasure import compile_treasure
+            ref=MapReference(config['map_id'],tuple(config['bbox']),config['scale'],1,1,projection=config['projection'],origin=tuple(config['origin']),
+                             treasure_enabled=config['treasure']['enabled'],treasure_probability=config['treasure']['probability'],
+                             beds_enabled=config.get('beds',{}).get('enabled',True),beds_probability=config.get('beds',{}).get('probability',.25))
+            payload=None
+            if data['treasure'].get('version',1)<3:
+                source=n.connect(config['index'])
+                try:payload=n.extract(source,data['bbox'])
+                finally:source.close()
+                treasure=compile_treasure(ref,payload);size=config['tile']
+                treasure['plans']=[p for p in treasure['plans'] if tx*size<=p['points'][0][0]<(tx+1)*size and tz*size<=p['points'][0][1]<(tz+1)*size]
+                treasure['selected']=len(treasure['plans']);data['treasure']=treasure
+            if data.get('beds') is None:
+                from beds import compile_beds
+                if payload is None:
+                    source=n.connect(config['index'])
+                    try:payload=n.extract(source,data['bbox'])
+                    finally:source.close()
+                beds=compile_beds(ref,payload);size=config['tile']
+                beds['plans']=[p for p in beds['plans'] if tx*size<=p['points'][0][0]<(tx+1)*size and tz*size<=p['points'][0][1]<(tz+1)*size]
+                beds['selected']=len(beds['plans']);data['beds']=beds
+            old_beds=report.get('counts',{}).get('beds',0);beds_done=report.get('version',0)>=1
+            report=bake_directory(root/'world',data['treasure']['plans'],[] if beds_done else data.get('beds',{}).get('plans',[]),
                                   state_path=root/'furniture-state.sqlite',notify=notify)
+            if beds_done:report['counts']['beds']=old_beds
             data['furniture']=report;n.atomic_json(path,data)
         totals['chests']+=report['counts']['chests'];totals['beds']+=report['counts']['beds'];totals['tiles']+=1
         if index%20==0:notify(f'生成済み区画の家具: {index+1:,}/{len(tiles):,} 区画')
-    summary={'version':VERSION,'mode':'native_blocks','totals':totals,'signature':signature}
+    summary={'version':VERSION,'mode':'native_blocks','treasure_unit':'floor','totals':totals,'signature':signature}
     n.atomic_json(root/'world/mapcraft_furniture.json',summary)
-    config['furniture_baked']=True;n.atomic_json(root/'project.json',config)
+    config['furniture_baked']=True;config['furniture_schema']=VERSION;n.atomic_json(root/'project.json',config)
     return summary
 
 if __name__=='__main__':

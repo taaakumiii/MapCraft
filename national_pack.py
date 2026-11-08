@@ -34,8 +34,8 @@ def install_pack(root,config):
             tile_path=root/'tile_data'/f'{tx}_{tz}.json'
             tile=json.loads(tile_path.read_text(encoding='utf-8'))
             bbox=tile['bbox'];s,w,n,e=bbox
-            if tile['treasure'].get('version',1)<2:
-                data=compile_treasure(ref,extract(source,bbox));size=config['tile']
+            if tile['treasure'].get('version',1)<2 or (not ref.furniture_baked and tile['treasure'].get('unit')=='floor'):
+                data=compile_treasure(ref,extract(source,bbox),per_floor=ref.furniture_baked);size=config['tile']
                 data['plans']=[p for p in data['plans'] if tx*size<=p['points'][0][0]<(tx+1)*size and tz*size<=p['points'][0][1]<(tz+1)*size]
                 data['selected']=len(data['plans']);tile['treasure']=data;atomic_json(tile_path,tile)
             # Older filled projects acquire bed plans on export as well, so

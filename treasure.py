@@ -1,4 +1,4 @@
-"""Create deterministic 25%-of-buildings treasure plans from real OSM land use."""
+"""Regional building candidates; native generation draws independently per floor."""
 import hashlib
 import json
 import math
@@ -48,7 +48,7 @@ def candidates(ring):
     return selected
 
 
-def compile_treasure(reference,payload,*,namespace='treasure-v1',classify=True):
+def compile_treasure(reference,payload,*,namespace='treasure-v1',classify=True,per_floor=True):
     s,w,n,e=reference.bbox
     nodes={v['id']:(v['lat'],v['lon']) for v in payload['elements'] if v.get('type')=='node' and 'lat' in v}
     buildings=[];land=[];seen=set();pois=[]
@@ -96,10 +96,12 @@ def compile_treasure(reference,payload,*,namespace='treasure-v1',classify=True):
         if not spots:continue
         eligible+=1
         digest=hashlib.sha256((reference.map_id+'/'+namespace+'/'+building['id']).encode()).digest()
-        if not reference.treasure_enabled or int.from_bytes(digest[:4],'big')/2**32>=reference.treasure_probability:continue
+        if not reference.treasure_enabled or reference.treasure_probability<=0:continue
+        if not per_floor and int.from_bytes(digest[:4],'big')/2**32>=reference.treasure_probability:continue
+        placement={'placement':'per_floor','probability':reference.treasure_probability} if per_floor else {}
         ring=building['ring']
         if not classify:
-            plans.append({'id':digest[:12].hex(),'source':building['id'],'points':spots,
+            plans.append({**placement,'id':digest[:12].hex(),'source':building['id'],'points':spots,
                           'bounds':[math.floor(min(p[0] for p in ring)),math.floor(min(p[1] for p in ring)),
                                     math.ceil(max(p[0] for p in ring)),math.ceil(max(p[1] for p in ring))],
                           'seed':int.from_bytes(digest[12:16],'big') or 1})
@@ -127,20 +129,22 @@ def compile_treasure(reference,payload,*,namespace='treasure-v1',classify=True):
         elif theme=='mixed' and scores['forest']>=3:theme='forest'
         elif theme=='mixed' and scores['coast']>=3:theme='coast'
         ring=building['ring']
-        plans.append({'id':digest[:12].hex(),'source':building['id'],'theme':theme,'points':spots,
+        plans.append({**placement,'id':digest[:12].hex(),'source':building['id'],'theme':theme,'points':spots,
                       'bounds':[math.floor(min(p[0] for p in ring)),math.floor(min(p[1] for p in ring)),
                                 math.ceil(max(p[0] for p in ring)),math.ceil(max(p[1] for p in ring))],
                       'seed':int.from_bytes(digest[12:16],'big') or 1})
-    return {'version':2,'enabled':reference.treasure_enabled,'probability':reference.treasure_probability,'eligible':eligible,'selected':len(plans),
+    return {'version':3 if per_floor else 2,'unit':'floor' if per_floor else 'building','enabled':reference.treasure_enabled,'probability':reference.treasure_probability,'eligible':eligible,'selected':len(plans),
             'source':'OpenStreetMap','plans':plans}
 
 
 def prepare_treasure(reference,root):
     root=Path(root)
     from jobcache import plan_key,load_plan,atomic_json
-    key=plan_key(reference,root/'osm.json','treasure');path=root/'treasure-plan.json'
+    key=plan_key(reference,root/'osm.json','treasure');key['per_floor']=reference.furniture_baked;path=root/'treasure-plan.json'
     cached=load_plan(path,key)
     if cached is not None:return cached
-    data=compile_treasure(reference,json.loads((root/'osm.json').read_text(encoding='utf-8')))
+    # Legacy add-on-only upgrades keep their old building selection. Fresh
+    # generator outputs bake the per-floor result before this pack is built.
+    data=compile_treasure(reference,json.loads((root/'osm.json').read_text(encoding='utf-8')),per_floor=reference.furniture_baked)
     data['cache_key']=key;atomic_json(path,data)
     return data

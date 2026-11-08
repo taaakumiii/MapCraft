@@ -1,7 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.15.0-preview
 
+- Independent per-floor chest draws with a configurable 0–100% chance (25% default), at most one chest per usable floor, including rooms below thick cobbled roofs.
+- Backfill old private creator tiles from source data while preserving existing generator chest inventories and beds; retry journals retain floor identities.
 - Optional bounded process pool for geological calculations, with a single LevelDB writer and identical native block results.
 - Region phases hold future tiles, safely hand over at a tile boundary, export the completed region and stop while retaining the national project.
 

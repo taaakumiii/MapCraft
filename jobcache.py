@@ -19,7 +19,7 @@ def plan_key(reference,source,kind):
     data=asdict(reference)
     common={k:data[k] for k in ('map_id','bbox','scale','span_x','span_z','projection','origin')}
     prefix='treasure' if kind=='treasure' else 'beds'
-    return {'schema':2 if kind=='treasure' else 1,'kind':kind,'reference':common,'enabled':data[prefix+'_enabled'],
+    return {'schema':3 if kind=='treasure' else 1,'kind':kind,'reference':common,'enabled':data[prefix+'_enabled'],
             'probability':data[prefix+'_probability'],'source_sha256':source_hash(source)}
 
 def load_plan(path,key):
