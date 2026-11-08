@@ -57,6 +57,7 @@ class App:
         self.fillground=tk.BooleanVar(value=True);self.geology_enabled=tk.BooleanVar(value=True);self.gpu_enabled=tk.BooleanVar(value=True);self.include_navigation=tk.BooleanVar(value=True)
         self.treasure_enabled=tk.BooleanVar(value=True);self.treasure_probability=tk.StringVar(value='25')
         self.beds_enabled=tk.BooleanVar(value=True);self.beds_probability=tk.StringVar(value='25')
+        self.villagers_enabled=tk.BooleanVar(value=False);self.villagers_ratio=tk.StringVar(value='1000')
         self.output = tk.StringVar(value=str(BASE/'worlds')); self.coordinates = tk.StringVar()
         self.style(); self.layout(); self.update_selection()
         root.after(200, self.fit); root.after(100, self.poll)
@@ -183,6 +184,7 @@ class App:
         self.label(pane,'標準でオン。基準の地面Y=64から地中を石・鉱石で埋めます。\n地下鉄トンネルは地図に登録された路線から生成します。\n生成済みのワールドへの反映には再生成が必要です。',muted=True)
         ttk.Checkbutton(pane,text='公的地質・人工地形を地下に反映（Windows統合版）',variable=self.geology_enabled).pack(anchor='w',pady=(5,2))
         self.label(pane,'地中を埋める設定と併用。Y=1〜56の石を地質に応じて変更。\n深さ・鉱石の分布は冒険向けのゲーム用モデルです。',muted=True)
+        self.label(pane,'活火山の近くでは地下に小さなマグマだまりを生成し、\n地下の鉱石と宝箱の鉱物が増えます（ゲーム用の近似）。',muted=True)
         ttk.Checkbutton(pane,text='対応GPUで地盤計算を高速化（自動判定）',variable=self.gpu_enabled).pack(anchor='w',pady=(8,2))
         self.label(pane,'速度を比較して速い方式を使用。GPU未対応・利用不可・\nCPUの方が速い場合は、CPUで処理します。',muted=True)
         ttk.Separator(pane).pack(fill='x',pady=12)
@@ -203,6 +205,14 @@ class App:
         self.label(pane,'建物ごとの配置確率（%・0〜100）',muted=True)
         bed_probability.pack(anchor='w');beds_changed()
         self.label(pane,'初期値25%。チェストとは別に抽選します。\n2マス分の空きがある室内に1台。取得・破壊後は補充しません。',muted=True,pady=5)
+        ttk.Separator(pane).pack(fill='x',pady=10)
+        self.label(pane,'人口に応じた住民（Windows統合版）',bold=True)
+        resident_ratio=ttk.Spinbox(pane,from_=100,to=100000,increment=100,textvariable=self.villagers_ratio,width=10)
+        def residents_changed():resident_ratio.configure(state='normal' if self.villagers_enabled.get() else 'disabled')
+        ttk.Checkbutton(pane,text='住宅内に村人を生成する',variable=self.villagers_enabled,command=residents_changed).pack(anchor='w',pady=(7,4))
+        self.label(pane,'実人口何人につき村人1人（小さいほど多く生成）',muted=True)
+        resident_ratio.pack(anchor='w');residents_changed()
+        self.label(pane,'初期値はオフ。有効時は実人口1,000人につき1人。\n2026年1月の市区町村人口を生成面積で按分します。\n都会は多く、田舎は少なく、安全な住宅内だけに配置。\n通常の村人なので表示用アドオンなしでも遊べます。',muted=True,pady=5)
         ttk.Button(dialog,text='閉じる',command=dialog.destroy).pack(fill='x',padx=22,pady=(8,16))
         def bind_scroll(widget):
             widget.bind('<MouseWheel>',lambda event:canvas.yview_scroll(-int(event.delta/120),'units'),add='+')
@@ -229,6 +239,12 @@ class App:
         if not math.isfinite(probability) or not 0<=probability<=100:
             raise ValueError('ベッド配置確率は0〜100%で指定してください。')
         return {'enabled':self.beds_enabled.get(),'probability':probability/100}
+
+    def villager_options(self):
+        from villagers import options
+        try:ratio=float(self.villagers_ratio.get())
+        except ValueError:raise ValueError('村人の人数比率を数値で入力してください。')
+        return options({'enabled':self.villagers_enabled.get(),'people_per_villager':ratio})
 
     def search(self):
         if self.searching:return
@@ -435,6 +451,7 @@ class App:
             bbox=validate_bbox(self.bbox); scale=SCALES[self.scale.get()]
             treasure=self.treasure_options()
             beds=self.bed_options()
+            villagers=self.villager_options()
             output_text=self.output.get().strip()
             if not output_text:raise ValueError('保存先を指定してください。')
             parent=Path(output_text).expanduser().resolve()
@@ -453,7 +470,7 @@ class App:
             self.last_folder=folder;self.last_world=None
             manifest={'app':'MapCraft '+VERSION,'job_schema':1,'engine':'Arnis v3.4.0','bbox':bbox,'scale':scale,'edition':self.job_edition,'fillground':self.fillground.get(),
                       'command':args,'status':'running','data_license':'https://www.openstreetmap.org/copyright',
-                      'scope':'User-selected bounding rectangle','treasure':treasure,'beds':beds,'geology':{'enabled':self.geology_enabled.get(),'backend':'auto' if self.gpu_enabled.get() else 'cpu'},'include_navigation':self.include_navigation.get()}
+                      'scope':'User-selected bounding rectangle','treasure':treasure,'beds':beds,'villagers':villagers,'geology':{'enabled':self.geology_enabled.get(),'backend':'auto' if self.gpu_enabled.get() else 'cpu'},'include_navigation':self.include_navigation.get()}
             atomic_json(folder/'generation.json',manifest)
             self.launch_job(folder,manifest)
         except Exception as e:messagebox.showerror('生成を開始できません',str(e))
@@ -483,6 +500,7 @@ class App:
                     value=args[args.index(flag)+1];var.set(value if var is self.height else value=='true')
             self.vanilla.set('--vanilla-height' in args);self.fillground.set('--fillground' in args);self.geology_enabled.set(data.get('geology',{}).get('enabled',False));self.include_navigation.set(data.get('include_navigation',True))
             self.gpu_enabled.set(data.get('geology',{}).get('backend','auto')!='cpu')
+            self.villagers_enabled.set(data.get('villagers',{}).get('enabled',False));self.villagers_ratio.set(str(data.get('villagers',{}).get('people_per_villager',1000)))
             for kind,enabled,probability in [('treasure',self.treasure_enabled,self.treasure_probability),('beds',self.beds_enabled,self.beds_probability)]:
                 enabled.set(data.get(kind,{}).get('enabled',True));probability.set(f"{data.get(kind,{}).get('probability',.25)*100:g}")
             self.update_selection();self.fit()

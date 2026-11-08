@@ -67,7 +67,7 @@ _GPU=None
 _AUTO_BACKENDS={}
 
 def material_descriptor(row):
-    _,_,cx,cz,section,rock,offset=row
+    _,_,cx,cz,section,rock,offset=row[:7]
     hosts=[MATERIAL_IDS[name] for name in HOSTS.get(rock,HOSTS['sedimentary'])] if rock!='unknown' else [-1,0,0]
     iron=160 if rock in ('basalt','metamorphic') else 100 if rock in ('volcanic','granite') else 50
     gold=12 if rock in ('volcanic','granite') else 3
@@ -91,7 +91,7 @@ def apply_materials(data,section,materials):
 
 def material_batch(payload):
     rows,materials=payload
-    return [(row[0],*apply_materials(row[1],row[4],materials[i])) for i,row in enumerate(rows)]
+    return [(row[0],*finish_volcano(row,*apply_materials(row[1],row[4],materials[i]))) for i,row in enumerate(rows)]
 
 def gpu_batch(rows,gpu,codec_pool=None):
     materials=gpu.materials([material_descriptor(row) for row in rows])
@@ -142,9 +142,52 @@ def decorate(data,cx,cz,section,rock,offset=(0,0)):
         indices[changed&(names==name)]=slots[name]
     return encode(data[:3],layers),int(changed.sum())
 
+def finish_volcano(row,result,count):
+    if len(row)<8 or row[7] is None:return result,count
+    _,original,cx,cz,section,_,offset,volcano=row
+    old=decode(original);old_indices,old_palette=old[0]
+    stone=[i for i,v in enumerate(old_palette) if str(v.compound['name'])=='minecraft:stone' and not v.compound['states']]
+    eligible=np.isin(old_indices,stone)
+    for indices,palette in old[1:]:
+        air=[i for i,v in enumerate(palette) if str(v.compound['name'])=='minecraft:air']
+        eligible&=np.isin(indices,air)
+    y=LY.astype(np.int64)+section*16
+    eligible&=(y>=3)&(y<=50)
+    if not eligible.any():return result,count
+    x=LX.astype(np.int64)+cx*16+offset[0];z=LZ.astype(np.int64)+cz*16+offset[1]
+    names=np.full(4096,'',dtype='U20')
+    cluster=noise(x//3,y//3,z//3)%10000;sparse=noise(x,y,z)%3==0
+    strength=volcano['strength']/1000
+    # Ordinary minerals are enriched; diamonds/netherite retain their usual gates.
+    low=0
+    for name,frequency in [('iron_ore',260),('copper_ore',320),('gold_ore',35),('redstone_ore',55),('lapis_ore',35)]:
+        high=low+round(frequency*strength)
+        names[eligible&sparse&(cluster>=low)&(cluster<high)]=name;low=high
+    ellipsoid=((x-volcano['x'])/volcano['radius'])**2+((z-volcano['z'])/volcano['radius'])**2+((y-volcano['y'])/volcano['ry'])**2
+    # Stay inside a section and require six original solid neighbours. Existing
+    # tunnels, water, structures and ores are never pierced by the lava model.
+    solid=np.isin(old_indices,stone).reshape(16,16,16)
+    sealed=np.zeros((16,16,16),dtype=bool)
+    sealed[2:-2,2:-2,2:-2]=(solid[1:-3,2:-2,2:-2]&solid[3:-1,2:-2,2:-2]&
+        solid[2:-2,1:-3,2:-2]&solid[2:-2,3:-1,2:-2]&solid[2:-2,2:-2,1:-3]&solid[2:-2,2:-2,3:-1])
+    chamber=eligible&sealed.ravel()&(ellipsoid<1)
+    names[chamber]='magma';names[chamber&(ellipsoid<.65)]='lava'
+    changed=names!=''
+    if not changed.any():return result,count
+    layers=decode(result);indices,palette=layers[0];version=palette[0].compound['version']
+    for name in np.unique(names[changed]):
+        states={'liquid_depth':nbt.IntTag(0)} if name=='lava' else {}
+        tag=nbt.CompoundTag({'name':nbt.StringTag('minecraft:'+name),'states':nbt.CompoundTag(states),'version':version})
+        slot=next((i for i,v in enumerate(palette) if v.compound==tag),None)
+        if slot is None:slot=len(palette);palette.append(nbt.NamedTag(tag))
+        indices[names==name]=slot
+    remains=[i for i,v in enumerate(palette) if str(v.compound['name'])=='minecraft:stone' and not v.compound['states']]
+    return encode(result[:3],layers),int((np.isin(old_indices,stone)&~np.isin(indices,remains)).sum())
+
+
 def decorate_batch(rows):
     # Workers receive bytes and coordinates only. They never open LevelDB.
-    return [(key,*decorate(value,cx,cz,section,rock,offset)) for key,value,cx,cz,section,rock,offset in rows]
+    return [(row[0],*finish_volcano(row,*decorate(row[1],*row[2:7]))) for row in rows]
 
 
 def cpu_records(rows,workers):
@@ -218,10 +261,11 @@ def apply_directory(world,reference,cache,notify=print,offset=(0,0),survey=None,
     if not 1<=workers<=32:raise ValueError('地盤処理の並列数は1〜32で指定してください。')
     started=time.monotonic()
     world=Path(world);survey=survey or Survey(cache,notify);db=leveldb.LevelDB(str(world/'db'),create_if_missing=False)
-    batch={};changed=0;processed=0;profiles={};last=None
+    batch={};changed=0;processed=0;profiles={};last=None;volcano=None
+    from volcanoes import parameters,CREDITS as VOLCANO_CREDITS
     if workers>1:notify(f'地盤処理: {backend.upper()} / CPU最大{workers}並列（保存は1プロセス）')
     def records():
-        nonlocal last
+        nonlocal last,volcano
         for key,value in db.iterate():
             if len(key)!=10 or key[8]!=47:continue
             section=struct.unpack('b',key[9:])[0]
@@ -230,7 +274,8 @@ def apply_directory(world,reference,cache,notify=print,offset=(0,0),survey=None,
             if last!=chunk:
                 lat,lon=reference.geographic(cx*16+8+offset[0],cz*16+8+offset[1]);rock=survey.sample(lat,lon);last=chunk
                 profiles[rock]=profiles.get(rock,0)+1
-            yield key,value,cx,cz,section,rock,offset
+                volcano=parameters(reference,lat,lon)
+            yield key,value,cx,cz,section,rock,offset,volcano
     try:
         compute={}
         for key,result,count in decorated_records(records(),workers,backend,notify,compute):
@@ -243,7 +288,7 @@ def apply_directory(world,reference,cache,notify=print,offset=(0,0),survey=None,
     finally:db.close()
     record={'version':VERSION,'profiles':profiles,'changed_blocks':changed,'workers':workers,'compute':compute,'seconds':round(time.monotonic()-started,3),'scope':'Only original plain stone at Y=1..56; other blocks, air and secondary storage unchanged.','model':'Surface survey reference; depth and ore frequencies are fictional gameplay adaptation.'}
     (world/'mapcraft_geology.json').write_text(json.dumps(record,ensure_ascii=False),encoding='utf-8')
-    (world/'GEOLOGY-CREDITS.txt').write_text(CREDITS,encoding='utf-8')
+    (world/'GEOLOGY-CREDITS.txt').write_text(CREDITS+'\n'+VOLCANO_CREDITS,encoding='utf-8')
     return record
 
 def apply_archive(path,reference,cache,notify=print,backend=None):

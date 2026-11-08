@@ -52,6 +52,7 @@ def compile_boundaries(payload):
         if not outlines:raise ValueError(f'{name}の市町村境界を取得できませんでした。')
         points=[p for ring in outlines for p in ring]
         result.append({'id':'osm:relation:'+str(relation['id']),'name':name,
+                       'local_authority_code':tags.get('ref:ja:local_authority',''),
                        'bounds':[min(p[0] for p in points),min(p[1] for p in points),
                                  max(p[0] for p in points),max(p[1] for p in points)],
                        'outer':outlines,'inner':holes})

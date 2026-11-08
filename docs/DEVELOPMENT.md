@@ -11,6 +11,8 @@
 - `furniture_backend.py` / `loot_native.py`：通常のチェスト・アイテムNBT・両側のベッドを生成時に保存します。生成者のSQLiteジャーナルで再試行時の補充を防ぎます。
 - `regions-loader.js`：旧形式の、プレイヤー周辺で家具を配置するワールド向け互換処理です。事前配置版では実行しません。
 - `geology.py` / `geology_backend.py`：GSJ/GSI参照と、普通の石だけを変更する地質用の後処理。
+- `volcanoes.py` / `active-volcanoes.json`：気象庁の火山代表点とゲーム用の地下・宝箱調整。CPU/GPU共通の追加処理は元の普通の石だけを変更します。
+- `villagers.py` / `villagers_backend.py` / `municipal-population.json`：実人口の面積按分、住宅内候補、通常の村人Actor・digp保存と再試行ジャーナル。出生地や建物別居住者の再現ではありません。
 - `autogen.py`：実験的な無人処理。関東優先の等倍生成、再試行、容量を予約した出力。
 
 `version.py`にアプリとパックのバージョンを定義します。更新パックをMinecraftに再取り込みさせる場合はパックバージョンを進めます。配置済み家具の永続IDは変更しないでください。変更すると補充・重複につながります。

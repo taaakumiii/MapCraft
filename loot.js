@@ -12,6 +12,7 @@ const profiles={
     mixed:{food:28,farm:10,equipment:20,industrial:10,building:18,forest:6,coast:3,alchemy:3,treasure:2}
 };
 let available;
+const volcanicMinerals=new Set(['coal','charcoal','raw_iron','iron_ingot','raw_copper','copper_ingot','raw_gold','gold_ingot','gold_nugget','iron_nugget','redstone','lapis_lazuli','amethyst_shard','quartz','flint']);
 function catalogue(){
     if(!available){
         const registry=new Set(ItemTypes.getAll().map(v=>v.id));
@@ -36,10 +37,16 @@ export function lootFor(plan,pool=catalogue()){
     const gate=r(),special=gate<.0002?'relic':gate<.008?'rare':undefined;
     for(let i=0;i<count;i++){
         const tier=i===0&&special?special:r()<.12?'uncommon':'common';
-        const entry=choose(tier,plan.theme,r,used,pool)||choose('common',plan.theme,r,used,pool);
+        let entry;
+        if(plan.volcano&&['common','uncommon'].includes(tier)&&r()<.5*plan.volcano.strength/1000){
+            const minerals=pool.filter(e=>e.tier===tier&&volcanicMinerals.has(e.id)&&!used.has(e.id));
+            if(minerals.length)entry=minerals[Math.floor(r()*minerals.length)];
+        }
+        entry=entry||choose(tier,plan.theme,r,used,pool)||choose('common',plan.theme,r,used,pool);
         if(!entry)continue;
         used.add(entry.id);
-        items.push({type:'minecraft:'+entry.id,amount:1+Math.floor(r()*entry.max),tier:entry.tier,seed:Math.floor(r()*4294967296)});
+        const maximum=plan.volcano&&volcanicMinerals.has(entry.id)?Math.min(entry.max,3):entry.max;
+        items.push({type:'minecraft:'+entry.id,amount:1+Math.floor(r()*maximum),tier:entry.tier,seed:Math.floor(r()*4294967296)});
     }
     const slots=Array.from({length:27},(_,i)=>i);
     for(const item of items)item.slot=slots.splice(Math.floor(r()*slots.length),1)[0];

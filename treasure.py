@@ -133,6 +133,9 @@ def compile_treasure(reference,payload,*,namespace='treasure-v1',classify=True,p
                       'bounds':[math.floor(min(p[0] for p in ring)),math.floor(min(p[1] for p in ring)),
                                 math.ceil(max(p[0] for p in ring)),math.ceil(max(p[1] for p in ring))],
                       'seed':int.from_bytes(digest[12:16],'big') or 1})
+        from volcanoes import nearby
+        volcano=nearby(*reference.geographic(cx,cz))
+        if volcano:plans[-1]['volcano']={k:volcano[k] for k in ('id','name','distance_m','strength')}
     return {'version':3 if per_floor else 2,'unit':'floor' if per_floor else 'building','enabled':reference.treasure_enabled,'probability':reference.treasure_probability,'eligible':eligible,'selected':len(plans),
             'source':'OpenStreetMap','plans':plans}
 

@@ -12,6 +12,8 @@ PROFILES={
  'coast':dict(food=22,farm=3,equipment=15,industrial=7,building=10,forest=4,coast=35,alchemy=2,treasure=2),
  'mixed':dict(food=28,farm=10,equipment=20,industrial=10,building=18,forest=6,coast=3,alchemy=3,treasure=2)}
 
+VOLCANIC_MINERALS={'coal','charcoal','raw_iron','iron_ingot','raw_copper','copper_ingot','raw_gold','gold_ingot','gold_nugget','iron_nugget','redstone','lapis_lazuli','amethyst_shard','quartz','flint'}
+
 def random(seed):
     value=seed&0xffffffff
     def next_value():
@@ -36,9 +38,14 @@ def loot_for(plan,pool=None):
         return None
     for i in range(count):
         tier=special if i==0 and special else 'uncommon' if r()<.12 else 'common'
-        entry=choose(tier) or choose('common')
+        entry=None
+        if plan.get('volcano') and tier in ('common','uncommon') and r()<.5*plan['volcano']['strength']/1000:
+            minerals=[e for e in pool if e['tier']==tier and e['id'] in VOLCANIC_MINERALS and e['id'] not in used]
+            if minerals:entry=minerals[int(r()*len(minerals))]
+        entry=entry or choose(tier) or choose('common')
         if entry is None:continue
-        used.add(entry['id']);items.append({'type':'minecraft:'+entry['id'],'amount':1+int(r()*entry['max']),
+        maximum=min(entry['max'],3) if plan.get('volcano') and entry['id'] in VOLCANIC_MINERALS else entry['max']
+        used.add(entry['id']);items.append({'type':'minecraft:'+entry['id'],'amount':1+int(r()*maximum),
                                           'tier':entry['tier'],'seed':int(r()*4294967296)})
     slots=list(range(27))
     for item in items:item['slot']=slots.pop(int(r()*len(slots)))

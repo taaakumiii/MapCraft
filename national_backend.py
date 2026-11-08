@@ -211,7 +211,7 @@ def read_poly(path):
     if holes:geometry=geometry.difference(unary_union(holes))
     return geometry
 
-def create_project(root,index,scale,poly,bbox=None,spawn=None,treasure=None,tile=TILE,beds=None,geology=None):
+def create_project(root,index,scale,poly,bbox=None,spawn=None,treasure=None,tile=TILE,beds=None,geology=None,villagers=None):
     from shapely.geometry import box
     from shapely.ops import transform
     from shapely.prepared import prep
@@ -220,6 +220,8 @@ def create_project(root,index,scale,poly,bbox=None,spawn=None,treasure=None,tile
     if not .3<=scale<=1:raise ValueError('全国モードの縮尺は0.3〜1ブロック/mです。')
     if tile<32 or tile%32:raise ValueError('区画の幅は32の倍数で指定してください。')
     info=index_info(index)
+    from villagers import options as villager_options
+    villagers=villager_options(villagers)
     with connect(index) as db:
         prefectures=[unpacked(row[0]) for row in db.execute('SELECT data FROM prefectures')]
     coverage=read_poly(poly)
@@ -268,7 +270,7 @@ def create_project(root,index,scale,poly,bbox=None,spawn=None,treasure=None,tile
             'bbox':bbox or [south,west,north,east],'spawn':spawn,'spawn_policy':'tokyo_station' if scope_mode=='national' else 'selected_area',
             'scope_mode':scope_mode,'total':total,'created':time.time(),
             'mode':'geo-only','ground_level':64,'fillground':True,'furniture_baked':True,'treasure':treasure or {'enabled':True,'probability':.25},
-            'beds':beds or {'enabled':True,'probability':.25},'geology':geology if geology is not None else {'enabled':True}}
+            'beds':beds or {'enabled':True,'probability':.25},'geology':geology if geology is not None else {'enabled':True},'villagers':villagers}
     atomic_json(root/'project.json',config)
     emit('planned',tiles=total,chunks=total*(tile//16)**2,project=str(root))
     return config
@@ -478,6 +480,8 @@ def export_world(root,destination):
     configure_spawn(root,config)
     from furniture_backend import ensure_project_furniture
     ensure_project_furniture(root,lambda text:emit('log',text=text));config=load_project(root)
+    from villagers_backend import ensure_project_villagers
+    ensure_project_villagers(root,lambda text:emit('log',text=text))
     # Export a snapshot, leaving the persistent private database extensible.
     from national_pack import install_pack
     install_pack(root,config)
@@ -500,7 +504,7 @@ def main():
         with project_lock(Path(data['index']).resolve().parent):index_pbf(data['source'],data['index'],Path(data['project'])/'pause.request')
         return
     with project_lock(data['project']):
-        if args.action=='create':create_project(data['project'],data['index'],data['scale'],data['poly'],data.get('bbox'),data.get('spawn'),data.get('treasure'),beds=data.get('beds'),geology=data.get('geology'))
+        if args.action=='create':create_project(data['project'],data['index'],data['scale'],data['poly'],data.get('bbox'),data.get('spawn'),data.get('treasure'),beds=data.get('beds'),geology=data.get('geology'),villagers=data.get('villagers'))
         elif args.action=='run':run_tiles(data['project'],data.get('limit',0),data.get('near'))
         elif args.action=='status':emit('status',**status(data['project']))
         elif args.action=='export':export_world(data['project'],data['destination'])

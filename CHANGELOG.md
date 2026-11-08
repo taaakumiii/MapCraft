@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.17.0-preview
+
+- Optional native vanilla villagers in residential interiors, apportioned from municipal population and generated area. Default off; adjustable 100–100,000 real residents per villager (1,000 when enabled).
+- Bundle 2026-01-01 municipal resident-registry population (Japanese and foreign residents); report unmatched municipalities and unavailable safe interiors instead of guessing.
+- Bake actor records and chunk digests into the world, preserving existing actors and retry identities. No villager add-on is required.
+- Use JMA's 111 active-volcano representative positions for sealed deep lava/magma pockets and modest nearby mineral enrichment. Positions are real; underground geometry and ore frequencies are fictional gameplay models.
+- Bias nearby chest common/uncommon mineral loot, retaining the same rare/relic gate and maximum one rare item per chest. CPU and GPU paths share identical volcano decoration.
+- Remove obsolete local validation/build copies and historical screenshots; retain referenced minimap PNG assets, generated worlds and live jobs.
+
 ## 0.16.1-preview
 
 - Remove the launcher batch file from source and distributions; launch MapCraft.exe directly.

@@ -235,9 +235,15 @@ class GenerationJob:
         from dataclasses import replace
         base=Path(sys.executable).parent if getattr(sys,'frozen',False) else Path(__file__).resolve().parent
         request=self.folder/'furniture-request.json';runtime=base/'engine/national-runtime/python.exe'
+        boundaries=None
+        if self.data.get('villagers',{}).get('enabled'):
+            self.stage('boundaries');boundary_root=self.folder/'resident-boundaries'
+            prepare_boundaries(reference,boundary_root);boundaries=boundary_root/'municipalities.json'
+            self.stage('furniture')
         for world in worlds:
             atomic_json(request,{'world':str(world),'reference':asdict(reference),'osm':str(self.folder/'osm.json'),
-                                 'vanilla':not self.data.get('include_navigation',True)})
+                                 'vanilla':not self.data.get('include_navigation',True),'villagers':self.data.get('villagers'),
+                                 'boundaries':str(boundaries) if boundaries is not None else None})
             process=subprocess.Popen([str(runtime),str(base/'furniture_backend.py'),'--request',str(request)],env={**os.environ,'PYTHONIOENCODING':'utf-8'},stdout=subprocess.PIPE,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),cwd=str(base))
             self.active_process=process;self.process_changed(process)
             for raw in process.stdout:self.check();self.log(raw.decode('utf-8',errors='replace'))

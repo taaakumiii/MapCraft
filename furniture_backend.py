@@ -288,7 +288,7 @@ def strip_packs(archive,output):
             while block:=src.read(1024*1024):dst.write(block)
     for name,data in retained.items():output.writestr(name,data)
 
-def bake_archive(path,chests,beds,*,vanilla=False,reference=None,notify=print):
+def bake_archive(path,chests,beds,*,vanilla=False,reference=None,notify=print,villagers=None):
     path=Path(path).resolve()
     with tempfile.TemporaryDirectory(prefix='.furniture-',dir=path.parent) as temporary:
         root=Path(temporary)
@@ -304,7 +304,11 @@ def bake_archive(path,chests,beds,*,vanilla=False,reference=None,notify=print):
             if previous.get('version',0)>=1:
                 report['counts']['beds']=previous.get('counts',previous.get('totals',{})).get('beds',0)
                 marker.write_text(json.dumps(report),encoding='utf-8')
-        for file in root.glob('mapcraft_furniture-state.sqlite*'):file.unlink()
+        if villagers is not None and villagers['options']['enabled']:
+            from villagers_backend import bake_villagers
+            report={**report,'villagers':bake_villagers(root,villagers,notify=notify)}
+        for pattern in ('mapcraft_furniture-state.sqlite*','mapcraft_villagers-state.sqlite*'):
+            for file in root.glob(pattern):file.unlink()
         tracking=root/'mapcraft_tracking.json'
         if tracking.exists() or reference is not None:
             data=asdict(reference) if reference is not None else json.loads(tracking.read_text(encoding='utf-8'))
@@ -381,4 +385,10 @@ if __name__=='__main__':
         from beds import compile_beds
         payload=json.loads(Path(request['osm']).read_text(encoding='utf-8'))
         plans={'chests':compile_treasure(reference,payload)['plans'],'beds':compile_beds(reference,payload)['plans']}
-    print(json.dumps(bake_archive(request['world'],plans['chests'],plans['beds'],vanilla=request.get('vanilla',False),reference=reference),ensure_ascii=True),flush=True)
+    villagers=None
+    if (request.get('villagers') or {}).get('enabled'):
+        from villagers import compile_villagers
+        payload=json.loads(Path(request['osm']).read_text(encoding='utf-8'))
+        boundaries=json.loads(Path(request['boundaries']).read_text(encoding='utf-8'))
+        villagers=compile_villagers(reference,payload,boundaries,request['villagers'],notify=print)
+    print(json.dumps(bake_archive(request['world'],plans['chests'],plans['beds'],vanilla=request.get('vanilla',False),reference=reference,villagers=villagers),ensure_ascii=True),flush=True)

@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw
 
 GSJ='https://gbank.gsj.jp/seamless/v2/api/1.3/'
 GSI='https://cyberjapandata.gsi.go.jp/xyz/experimental_landformclassification2/'
-VERSION=1
+VERSION=2
 CREDITS='地質: 産総研地質調査総合センター「20万分の1日本シームレス地質図V2」を加工。\nhttps://gsj-seamless.jp/seamless/v2/api/1.3/\n人工地形: 国土地理院「地形分類（人工地形）」を加工。\nhttps://www.gsi.go.jp/bousaichiri/lfc_index.html\n地下の深さ・層構成・鉱石の確率はMapCraftのゲーム用設定であり、実際の三次元地質・鉱床・安全性を示しません。\n'
 
 def pixel(lat,lon,zoom):
