@@ -126,4 +126,22 @@ class ParallelFurniture(unittest.TestCase):
             self.assertTrue(any('データを再利用' in message for message in messages))
             gc.collect()
 
+    def test_reopened_db_reuses_only_shards_whose_source_records_still_match(self):
+        from furniture_backend import Blocks
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);fixture(root/'resumed');work=root/'resumed/.parallel-furniture-resume'
+            def interrupt(message):
+                if message.startswith('家具を地区別DBで計算:'):raise InterruptedError('Interrupted')
+            with self.assertRaises(InterruptedError):ensure_parallel_furniture(root/'resumed',interrupt,workers=2,rebuild=True,work_dir=work)
+            hint=json.loads((work/'session.json').read_text())
+            db=leveldb.LevelDB(str(root/'resumed/world/db'),create_if_missing=False);blocks=Blocks(db)
+            blocks.set(8,20,8,'minecraft:air',{});blocks.commit();db.close()
+            shutil.copytree(root/'resumed',root/'serial')
+            with patch('parallel_furniture.database_fingerprint',return_value='reopened-layout'):
+                actual=ensure_parallel_furniture(root/'resumed',lambda _:None,workers=2,rebuild=True,work_dir=work,snapshot_hint=hint,source_aliases=[hint['source_identity']])
+            expected=ensure_project_furniture(root/'serial',lambda _:None)
+            self.assertGreater(actual['performance']['cache_hits'],0)
+            self.assertEqual(actual['totals'],expected['totals']);self.assertEqual(values(root/'resumed'),values(root/'serial'))
+            gc.collect()
+
 if __name__=='__main__':unittest.main()

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.19.0-preview
+
+- Add cached NOAA ETOPO 2022 bathymetry correction for existing open water; preserve land, structures, tunnels and mapped freshwater, skip small pools, and cap depth at 60 blocks.
+- Increase new-job wildlife defaults to 200%, use 128m habitat cells, and select the dominant habitat by usable area so small streams do not suppress livestock.
+- New GUI jobs enable villagers at 250 residents per villager, prioritize low floors and optionally use safe residential yards. Preserve saved older flags and ratios.
+- Buffer actor writes using pending intents, retry transient Windows JSON locks, and validate old shard preconditions after LevelDB file rotation.
+
+- Add an opt-in boss-location beacon setting, off by default for existing and new settings. Save a vanilla beacon and its one-layer iron base near successfully placed bosses or End entrances, without additional mods/packs.
+- Preserve buildings, reward chests and blocked sky columns; skip beacon placement when there is no suitable nearby location. Journal beacons independently so retries neither respawn bosses nor replace mined beacon/base blocks. Beacons remain after boss defeat.
+- Add restartable, per-tile furniture difference databases with boundary checks and sorted, verified world DB rebuilding. Keep the original database as a backup and reuse completed tile calculations after interruption.
+- Accelerate snapshot range reads and OSM multipolygon ring joining; preserve native furniture records and inventories in equivalence tests.
+
 ## 0.18.0-preview
 
 - Bake habitat-appropriate vanilla animals into the world, with an adjustable density and no ecosystem script/mod/pack dependency.

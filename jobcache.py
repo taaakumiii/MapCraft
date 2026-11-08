@@ -3,14 +3,24 @@ from dataclasses import asdict
 import hashlib
 import json
 import os
+import time
+import uuid
 from pathlib import Path
 
 def atomic_json(path,data):
-    path=Path(path);temporary=path.with_name(path.name+'.writing')
-    with temporary.open('w',encoding='utf-8') as stream:
-        json.dump(data,stream,ensure_ascii=False,separators=(',',':'))
-        stream.flush();os.fsync(stream.fileno())
-    os.replace(temporary,path)
+    path=Path(path);temporary=path.with_name(path.name+'.'+uuid.uuid4().hex+'.writing')
+    try:
+        with temporary.open('w',encoding='utf-8') as stream:
+            json.dump(data,stream,ensure_ascii=False,separators=(',',':'))
+            stream.flush();os.fsync(stream.fileno())
+        for attempt in range(20):
+            try:os.replace(temporary,path);return
+            except PermissionError:
+                if attempt==19:raise
+                time.sleep(min(.01*2**attempt,.2))
+    finally:
+        try:temporary.unlink(missing_ok=True)
+        except PermissionError:pass
 
 def source_hash(path):
     with Path(path).open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()

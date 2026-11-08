@@ -16,7 +16,7 @@ import zipfile
 from core import ENGINE_SHA256,find_worlds,validate_bbox
 from jobcache import atomic_json,source_hash
 
-STAGES={'validate':'保存情報の確認','engine':'地形・建物の生成','geology':'公的地盤データの反映','furniture':'宝箱・ベッドをワールドへ事前配置','map':'実地図の作成','boundaries':'市町村境界の準備',
+STAGES={'validate':'保存情報の確認','engine':'地形・建物の生成','bathymetry':'実際の海底地形の反映','geology':'公的地盤データの反映','furniture':'宝箱・ベッドをワールドへ事前配置','map':'実地図の作成','boundaries':'市町村境界の準備',
         'treasure':'チェストの準備','beds':'ベッドの準備','addon':'アドオンの作成',
         'embed':'ワールドへの組み込み','metadata':'生成情報の保存','complete':'完了'}
 class JobBusy(RuntimeError):pass
@@ -215,6 +215,18 @@ class GenerationJob:
         from beds import prepare_beds
         from nativepack import write_addon,embed_native_pack,read_addon_bundle,VERSION
         reference=MapReference.from_generation(self.data,self.folder.name)
+        if self.data.get('bathymetry',{}).get('enabled'):
+            self.stage('bathymetry')
+            import sys
+            base=Path(sys.executable).parent if getattr(sys,'frozen',False) else Path(__file__).resolve().parent
+            runtime=base/'engine/national-runtime/python.exe';request=self.folder/'bathymetry-request.json'
+            for world in worlds:
+                atomic_json(request,{'world':str(world),'reference':asdict(reference),'cache':str(base/'cache/bathymetry'),'settings':self.data['bathymetry'],'osm':str(self.folder/'osm.json')})
+                process=subprocess.Popen([str(runtime),str(base/'bathymetry_backend.py'),'--request',str(request)],env={**os.environ,'PYTHONIOENCODING':'utf-8'},stdout=subprocess.PIPE,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),cwd=str(base))
+                self.active_process=process;self.process_changed(process)
+                for raw in process.stdout:self.check();self.log(raw.decode('utf-8',errors='replace'))
+                code=process.wait();self.active_process=None;self.process_changed(None);self.check()
+                if code:raise RuntimeError('海底地形の反映に失敗しました。元の地形を保持しています。再試行できます。')
         if self.data.get('geology',{}).get('enabled') and self.data.get('fillground'):
             self.stage('geology')
             import sys

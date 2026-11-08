@@ -66,8 +66,17 @@ def connect(path):
     return db
 
 def atomic_json(path,data):
-    path=Path(path);tmp=path.with_suffix(path.suffix+'.tmp')
-    tmp.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8');os.replace(tmp,path)
+    path=Path(path);tmp=path.with_name(path.name+'.'+uuid.uuid4().hex+'.tmp')
+    try:
+        tmp.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
+        for attempt in range(20):
+            try:os.replace(tmp,path);return
+            except PermissionError:
+                if attempt==19:raise
+                time.sleep(min(.01*2**attempt,.2))
+    finally:
+        try:tmp.unlink(missing_ok=True)
+        except PermissionError:pass
 
 def packed(data):return zlib.compress(json.dumps(data,ensure_ascii=False,separators=(',',':')).encode(),3)
 def unpacked(data):return json.loads(zlib.decompress(data))
@@ -211,7 +220,7 @@ def read_poly(path):
     if holes:geometry=geometry.difference(unary_union(holes))
     return geometry
 
-def create_project(root,index,scale,poly,bbox=None,spawn=None,treasure=None,tile=TILE,beds=None,geology=None,villagers=None,mobs=None,include_navigation=False):
+def create_project(root,index,scale,poly,bbox=None,spawn=None,treasure=None,tile=TILE,beds=None,geology=None,villagers=None,mobs=None,include_navigation=False,bathymetry=None):
     from shapely.geometry import box
     from shapely.ops import transform
     from shapely.prepared import prep
@@ -224,6 +233,8 @@ def create_project(root,index,scale,poly,bbox=None,spawn=None,treasure=None,tile
     villagers=villager_options(villagers)
     from ecology import options as mob_options
     mobs=mob_options(mobs)
+    from bathymetry import options as bathymetry_options
+    bathymetry=bathymetry_options(bathymetry)
     if not isinstance(include_navigation,bool):raise ValueError('ミニマップ設定が不正です。')
     with connect(index) as db:
         prefectures=[unpacked(row[0]) for row in db.execute('SELECT data FROM prefectures')]
@@ -273,7 +284,7 @@ def create_project(root,index,scale,poly,bbox=None,spawn=None,treasure=None,tile
             'bbox':bbox or [south,west,north,east],'spawn':spawn,'spawn_policy':'tokyo_station' if scope_mode=='national' else 'selected_area',
             'scope_mode':scope_mode,'total':total,'created':time.time(),
             'mode':'geo-only','ground_level':64,'fillground':True,'furniture_baked':True,'treasure':treasure or {'enabled':True,'probability':.25},
-            'beds':beds or {'enabled':True,'probability':.25},'geology':geology if geology is not None else {'enabled':True},'villagers':villagers,'mobs':mobs,'include_navigation':include_navigation}
+            'beds':beds or {'enabled':True,'probability':.25},'geology':geology if geology is not None else {'enabled':True},'villagers':villagers,'mobs':mobs,'include_navigation':include_navigation,'bathymetry':bathymetry}
     atomic_json(root/'project.json',config)
     emit('planned',tiles=total,chunks=total*(tile//16)**2,project=str(root))
     return config
@@ -481,6 +492,8 @@ def export_world(root,destination):
     if not config.get('fillground'):raise ValueError('旧版の地下空洞設定のプロジェクトです。新しいプロジェクトで地中を含めて再生成してください。')
     if not status(root)['completed']:raise ValueError('まず1区画以上を生成してください。')
     configure_spawn(root,config)
+    from bathymetry_backend import ensure_project_bathymetry
+    ensure_project_bathymetry(root,lambda text:emit('log',text=text))
     from furniture_backend import ensure_project_furniture
     ensure_project_furniture(root,lambda text:emit('log',text=text));config=load_project(root)
     from villagers_backend import ensure_project_villagers
@@ -513,7 +526,7 @@ def main():
         with project_lock(Path(data['index']).resolve().parent):index_pbf(data['source'],data['index'],Path(data['project'])/'pause.request')
         return
     with project_lock(data['project']):
-        if args.action=='create':create_project(data['project'],data['index'],data['scale'],data['poly'],data.get('bbox'),data.get('spawn'),data.get('treasure'),beds=data.get('beds'),geology=data.get('geology'),villagers=data.get('villagers'),mobs=data.get('mobs'),include_navigation=data.get('include_navigation',False))
+        if args.action=='create':create_project(data['project'],data['index'],data['scale'],data['poly'],data.get('bbox'),data.get('spawn'),data.get('treasure'),beds=data.get('beds'),geology=data.get('geology'),villagers=data.get('villagers'),mobs=data.get('mobs'),include_navigation=data.get('include_navigation',False),bathymetry=data.get('bathymetry'))
         elif args.action=='run':run_tiles(data['project'],data.get('limit',0),data.get('near'))
         elif args.action=='status':emit('status',**status(data['project']))
         elif args.action=='export':export_world(data['project'],data['destination'])

@@ -7,12 +7,12 @@ import math
 from pathlib import Path
 import re
 
-DEFAULT={'enabled':False,'people_per_villager':1000}
+DEFAULT={'enabled':False,'people_per_villager':250,'outdoors_enabled':True}
 CREDITS='人口: 総務省 住民基本台帳に基づく人口・人口動態及び世帯数調査（総計、2026年1月1日現在）\nhttps://www.e-stat.go.jp/stat-search/files?cycle=7&layout=dataset&stat_infid=000040479049&toukei=00200241\n境界: © OpenStreetMap contributors (ODbL-1.0)。市町村内の人口は面積で按分したゲーム用近似です。\n'
 
 def options(value=None):
     result={**DEFAULT,**(value or {})};n=result['people_per_villager']
-    if not isinstance(result['enabled'],bool) or isinstance(n,bool) or not isinstance(n,(float,int)) or not math.isfinite(n) or not 100<=n<=100000:
+    if not isinstance(result['enabled'],bool) or not isinstance(result['outdoors_enabled'],bool) or isinstance(n,bool) or not isinstance(n,(float,int)) or not math.isfinite(n) or not 100<=n<=100000:
         raise ValueError('村人の人数設定は実人口100〜100,000人につき1人で指定してください。')
     return result
 

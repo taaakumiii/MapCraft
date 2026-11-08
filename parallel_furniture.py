@@ -153,6 +153,16 @@ def work_tile(task,overrides=None):
     if shard is not None and overrides is None:
         cached=load_shard(shard,identity)
         if cached is not None:return cached
+        for previous_source in task.get('source_aliases',[]):
+            alias=hashlib.sha256(json.dumps([2,previous_source,config,data],sort_keys=True).encode()).hexdigest()
+            cached=load_shard(shard,alias)
+            if cached is None:continue
+            original=rows_for(task['snapshot'],cached['bounds'])
+            # Physical SST filenames change during compaction. Reuse an old
+            # shard only after every recorded read/write precondition matches
+            # the current immutable snapshot, including absent keys.
+            if all(digest(original.get(key))==value for key,value in cached['before'].items()):
+                save_shard(shard,identity,cached);return cached
     from parallel_plans import prepare_tile
     prepare_tile(task)
     prepared=json.loads((root/'planning-cache'/task['name']).read_text(encoding='utf-8'))
@@ -179,7 +189,7 @@ def work_tile(task,overrides=None):
     if shard is not None and overrides is None:save_shard(shard,identity,result)
     return result
 
-def ensure_parallel_furniture(root,notify=print,workers=8,bulk_bytes=64*1024**2,rebuild=False,work_dir=None,snapshot_hint=None):
+def ensure_parallel_furniture(root,notify=print,workers=8,bulk_bytes=64*1024**2,rebuild=False,work_dir=None,snapshot_hint=None,source_aliases=()):
     if not 1<=workers<=32:raise ValueError('家具の並列数は1〜32です。')
     root=Path(root).resolve();config=n.load_project(root);started=time.monotonic()
     if work_dir is not None:
@@ -219,7 +229,7 @@ def ensure_parallel_furniture(root,notify=print,workers=8,bulk_bytes=64*1024**2,
             for tx,tz in needed:
                 size=config['tile'];tasks.append({'root':str(root),'name':f'{tx}_{tz}.json','config':config,'snapshot':str(snapshot),
                     'scratch':scratch,'journal':str(state_path),'bounds':(tx*size,tz*size,(tx+1)*size,(tz+1)*size),
-                    'shards':str(Path(scratch)/'shards'),'source_identity':source_identity})
+                    'shards':str(Path(scratch)/'shards'),'source_identity':source_identity,'source_aliases':list(source_aliases)})
             def flush():
                 nonlocal pending,pending_bytes,waiting,write_seconds,done
                 if not waiting:return

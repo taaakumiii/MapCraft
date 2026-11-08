@@ -10,6 +10,7 @@ import leveldb
 from furniture_backend import Blocks,MissingChunk
 from villagers_backend import actor as base_actor,storage_key
 from loot_native import item_nbt,random
+from actor_batch import BufferedDB
 
 GROUPS={
  'turtle':['minecraft:adult'],'rabbit':['adult','coat_brown'],
@@ -113,6 +114,54 @@ def arena(blocks,position,mode,*,apply=False,restore=False):
                     if not blocks.has_entity(x+dx,y,z+dz):blocks.entity(x+dx,y,z+dz,'EndPortal','mapcraft/end-portal',{})
     return True
 
+def beacon_site(blocks,point):
+    position=surface(blocks,point,{'type':'minecraft:beacon','width':2.2})
+    if position is None:return None
+    x,y,z=position
+    try:
+        for dx in (-1,0,1):
+            for dz in (-1,0,1):
+                if name(blocks,x+dx,y-2,z+dz) not in NATURAL or blocks.has_entity(x+dx,y-1,z+dz):return None
+        if blocks.has_entity(x,y,z):return None
+        # Check the actual column, including stored sections above a stale
+        # heightmap. Do not cut a beam shaft through roofs or trees.
+        if any(name(blocks,x,sy,z) not in AIR for sy in range(y+1,512)):return None
+    except MissingChunk:return None
+    return position
+
+def bake_beacon(blocks,plan,saved,journal,used):
+    previous=journal.execute('SELECT state,data FROM beacons WHERE id=?',(plan['id'],)).fetchone()
+    if previous and previous[0] in ('placed','blocked'):return 'existing' if previous[0]=='placed' else 'blocked'
+    position=json.loads(previous[1]).get('position') if previous else None
+    identity=plan['id']+'/beacon'
+    if position:
+        x,y,z=position
+        _,entities=blocks.block_entities(x,z)
+        if any(str(v.compound.get('MapCraftFurnitureId',''))==identity and str(v.compound.get('id',''))=='Beacon' for v in entities):
+            journal.execute("UPDATE beacons SET state='placed' WHERE id=?",(plan['id'],));journal.commit();return 'existing'
+        if beacon_site(blocks,[x,z])!=position:position=None
+    if position is None and saved.get('position'):
+        bx,_,bz=saved['position'];reward=saved.get('reward')
+        points=sorted({tuple(p) for p in plan['points']},key=lambda p:(math.hypot(p[0]-bx,p[1]-bz),p))
+        for x,z in points:
+            if not 6<=math.hypot(x-bx,z-bz)<=48:continue
+            if reward and math.hypot(x-reward[0],z-reward[2])<4:continue
+            if any((x+dx,z+dz) in used for dx in (-1,0,1) for dz in (-1,0,1)):continue
+            position=beacon_site(blocks,[x,z])
+            if position:break
+    if position is None:
+        journal.execute('INSERT OR REPLACE INTO beacons VALUES(?,?,?)',(plan['id'],'blocked','{}'));journal.commit();return 'blocked'
+    journal.execute('INSERT OR REPLACE INTO beacons VALUES(?,?,?)',(plan['id'],'placing',json.dumps({'position':position})));journal.commit()
+    x,y,z=position
+    for dx in (-1,0,1):
+        for dz in (-1,0,1):blocks.set(x+dx,y-1,z+dz,'minecraft:iron_block',{})
+    blocks.set(x,y,z,'minecraft:beacon',{})
+    # Bedrock uses lowercase primary/secondary. Zero leaves effects unselected.
+    blocks.entity(x,y,z,'Beacon',identity,{'primary':nbt.IntTag(0),'secondary':nbt.IntTag(0)})
+    blocks.commit()
+    journal.execute("UPDATE beacons SET state='placed' WHERE id=?",(plan['id'],));journal.commit()
+    used.add((x,z));return 'placed'
+
 def bake_mobs(world,compiled,*,state_path=None,notify=print):
     world=Path(world);marker=world/'mapcraft_ecology.json'
     signature=hashlib.sha256(json.dumps(compiled,sort_keys=True,separators=(',',':')).encode()).hexdigest()
@@ -120,10 +169,15 @@ def bake_mobs(world,compiled,*,state_path=None,notify=print):
         old=json.loads(marker.read_text(encoding='utf-8'))
         if old.get('signature')==signature:return old
     journal=sqlite3.connect(state_path or world/'mapcraft_ecology-state.sqlite')
-    journal.execute('CREATE TABLE IF NOT EXISTS actors(id TEXT PRIMARY KEY,state TEXT,data TEXT)');journal.commit()
-    db=None;counts={'animals':0,'bosses':0,'end_portals':0,'reward_chests':0,'existing':0,'blocked':0}
+    journal.execute('CREATE TABLE IF NOT EXISTS actors(id TEXT PRIMARY KEY,state TEXT,data TEXT)')
+    journal.execute('CREATE TABLE IF NOT EXISTS beacons(id TEXT PRIMARY KEY,state TEXT,data TEXT)');journal.commit()
+    beacons_enabled=compiled['options'].get('boss_beacons_enabled',False) is True
+    db=None;counts={'animals':0,'bosses':0,'end_portals':0,'reward_chests':0,'existing':0,'blocked':0,'beacons':0,'beacons_blocked':0}
     try:
-        db=leveldb.LevelDB(str(world/'db'),create_if_missing=False);blocks=Blocks(db,(0,0));used=set()
+        db=BufferedDB(leveldb.LevelDB(str(world/'db'),create_if_missing=False),enabled=not beacons_enabled);blocks=Blocks(db,(0,0));used=set();staged=[]
+        def flush():
+            db.flush()
+            journal.executemany("UPDATE actors SET state='placed' WHERE id=?",[(identity,) for identity in staged]);journal.commit();staged.clear()
         if not journal.execute('SELECT 1 FROM actors LIMIT 1').fetchone():
             for key,data in db.iterate():
                 if not key.startswith(b'actorprefix'):continue
@@ -138,7 +192,12 @@ def bake_mobs(world,compiled,*,state_path=None,notify=print):
         plans += [{**p,'boss':True} for p in compiled['bosses']]
         for number,plan in enumerate(plans):
             previous=journal.execute('SELECT state,data FROM actors WHERE id=?',(plan['id'],)).fetchone()
-            if previous and previous[0]=='placed':counts['existing']+=1;continue
+            if previous and previous[0]=='placed':
+                counts['existing']+=1
+                if beacons_enabled and plan.get('boss'):
+                    saved=json.loads(previous[1]);outcome=bake_beacon(blocks,plan,saved,journal,used)
+                    counts['beacons_blocked' if outcome=='blocked' else 'beacons']+=1
+                continue
             saved=json.loads(previous[1]) if previous else {}
             position=saved.get('position')
             if position is None:
@@ -175,6 +234,7 @@ def bake_mobs(world,compiled,*,state_path=None,notify=print):
             elif blocks.value(b'actorprefix'+key) is None:
                 uid=((int.from_bytes(key,'big')-0x100000000)^0xffffffff00000000)&0xffffffffffffffff
                 if uid>=2**63:uid-=2**64
+                sequence=max(sequence,uid+2**32)
                 py=y-2 if plan.get('mode')=='pool' else y+3 if plan['type']=='minecraft:wither' else y
                 tag=mob_nbt(uid,[x+.5,py,z+.5],plan)
                 digest_key=b'digp'+struct.pack('<ii',x//16,z//16);digest=blocks.value(digest_key) or b''
@@ -189,9 +249,14 @@ def bake_mobs(world,compiled,*,state_path=None,notify=print):
                 blocks.set(cx,cy,cz,'minecraft:chest',{'minecraft:cardinal_direction':nbt.StringTag('north')})
                 blocks.entity(cx,cy,cz,'Chest',plan['id']+'/reward',{'Findable':nbt.ByteTag(0),'Items':reward_loot(plan)})
                 counts['reward_chests']+=1
-            blocks.commit();journal.execute("UPDATE actors SET state='placed' WHERE id=?",(plan['id'],));journal.commit()
+            blocks.commit();staged.append(plan['id'])
+            if len(staged)>=128 or beacons_enabled:flush()
+            if beacons_enabled and plan.get('boss'):
+                outcome=bake_beacon(blocks,plan,saved,journal,used)
+                counts['beacons_blocked' if outcome=='blocked' else 'beacons']+=1
             if number%100==0:notify(f'モブを事前配置: 動物{counts["animals"]:,} / ボス{counts["bosses"]:,} / 攻略宝箱{counts["reward_chests"]:,}')
-        report={'version':1,'mode':'native_vanilla_mobs','signature':signature,'options':compiled['options'],'counts':counts,
+        flush()
+        report={'version':2,'mode':'native_vanilla_mobs','signature':signature,'options':compiled['options'],'counts':counts,
                 'runtime_pack':False,'dragon':'Large sites use a vanilla End portal; the dragon is fought in the normal End.'}
         marker.write_text(json.dumps(report,ensure_ascii=False),encoding='utf-8')
         (world/'ECOLOGY-CREDITS.txt').write_text('© OpenStreetMap contributors / ODbL-1.0\nhttps://www.openstreetmap.org/copyright\n生息地・敷地面積はOSMに基づくゲーム用の近似です。Minecraft標準のモブ・ブロック・アイテムを生成時に保存します。\n',encoding='utf-8')

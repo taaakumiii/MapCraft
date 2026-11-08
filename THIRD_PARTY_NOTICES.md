@@ -24,3 +24,5 @@ Generated worlds may use additional sources through Arnis options such as terrai
 ODbL-derived map images and vector/boundary datasets are not relicensed under MIT. Keep the OSM source data and attribution supplied with an add-on. This project is not an official Minecraft product and is not approved by or associated with Mojang or Microsoft.
 
 The Amulet license text is included to make its conditions visible; this document is a component inventory, not a separate permission from its authors. Check the applicable original license before commercial or competitive distribution/use.
+
+Bathymetry: NOAA NCEI (2022), ETOPO 2022 15 Arc-Second Global Relief Model, DOI 10.25921/fd45-gt74. https://www.ncei.noaa.gov/products/etopo-global-relief-model . Numeric subsets are retrieved when requested and cached locally; bathymetry is interpolated and depth-limited for gameplay. Source TIFFs are not bundled in the Creator ZIP.

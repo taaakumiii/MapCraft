@@ -2,16 +2,16 @@
 import hashlib
 import math
 
-DEFAULT={'wildlife_enabled':True,'density':1.,'bosses_enabled':False,'boss_min_area':25.}
+DEFAULT={'wildlife_enabled':True,'density':2.,'bosses_enabled':False,'boss_min_area':25.,'boss_beacons_enabled':False}
 SPECIES={
     'beach': [('turtle',5),('rabbit',1)],
     'ocean': [('cod',5),('squid',3),('dolphin',1)],
     'water': [('salmon',5),('cod',2),('squid',1)],
     'wetland': [('frog',5),('rabbit',1)],
     'mountain': [('goat',5),('rabbit',4),('llama',1)],
-    'forest': [('rabbit',5),('fox',2),('wolf',1),('bee',2)],
+    'forest': [('rabbit',4),('fox',2),('wolf',1),('bee',1),('pig',2),('chicken',2),('goat',1)],
     'farm': [('cow',4),('sheep',4),('pig',2),('chicken',4),('horse',1),('donkey',1)],
-    'park': [('rabbit',4),('bee',2),('cat',2)],
+    'park': [('rabbit',4),('bee',1),('cat',1),('chicken',3),('sheep',1)],
     'city': [('cat',1)]}
 WATER={'cod','salmon','squid','dolphin'}
 BOSS_NAMES={'shrine':'神社の守護獣','temple':'寺院の守護獣','grave':'墓所の守護獣'}
@@ -26,7 +26,7 @@ def boss_profile(area):
 
 def options(value=None):
     result={**DEFAULT,**(value or {})}
-    for k in ('wildlife_enabled','bosses_enabled'):
+    for k in ('wildlife_enabled','bosses_enabled','boss_beacons_enabled'):
         if not isinstance(result[k],bool):raise ValueError('動物・ボスの設定が不正です。')
     result.pop('respawn',None)
     for k,lo,hi in (('density',0,3),('boss_min_area',25,10000000)):
@@ -54,8 +54,8 @@ def compile_mobs(reference,payload,settings=None,*,owned_bounds=None):
     lat,_=reference.geographic((x0+x1)/2,(z0+z1)/2)
     metre=reference.scale
     if reference.projection=='national_mercator':metre*=math.cos(math.radians(reference.origin[0]))/math.cos(math.radians(lat))
-    cell=256*metre
-    if reference.projection=='national_mercator':cell=math.gcd(256,round(x1-x0),round(z1-z0))
+    cell=128*metre
+    if reference.projection=='national_mercator':cell=math.gcd(128,round(x1-x0),round(z1-z0))
     nodes={e['id']:e for e in payload.get('elements',[]) if e.get('type')=='node' and 'lat' in e}
     habitats=[];sites=[];obstacles=[];religious=[];buildings=[]
     def points(element):
@@ -122,7 +122,7 @@ def compile_mobs(reference,payload,settings=None,*,owned_bounds=None):
             for gx in range(math.floor(x0/cell),math.ceil(x1/cell)):
                 region=box(gx*cell,gz*cell,(gx+1)*cell,(gz+1)*cell).intersection(coverage)
                 if region.is_empty or region.area<cell*cell*.01:continue
-                seed=f'{reference.map_id}/habitat/{cell:.6f}/{gx}/{gz}'
+                seed=f'{reference.map_id}/habitat/v2/{cell:.6f}/{gx}/{gz}'
                 choices=[]
                 for index in tree.query(region):
                     habitat,shape=habitats[int(index)];part=shape.intersection(region)
@@ -130,10 +130,12 @@ def compile_mobs(reference,payload,settings=None,*,owned_bounds=None):
                     if part.area<=0:continue
                     point=part.representative_point();choices.append((rank[habitat],habitat,point,part))
                 if not choices:continue
-                choices.sort(key=lambda v:(v[0],v[2].x,v[2].y))
+                # A tiny stream must not displace a whole field's livestock.
+                # Prefer the habitat covering most of the available cell.
+                choices.sort(key=lambda v:(-v[3].area,v[0],v[2].x,v[2].y))
                 _,habitat,anchor,part=choices[0]
                 # Sparse city cats; a few animals per habitat cell, never per block.
-                rate=(.12 if habitat=='city' else .7)*settings['density']*min(1,region.area/((256*metre)**2))
+                rate=(.12 if habitat=='city' else .7)*settings['density']*min(1,region.area/((128*metre)**2))
                 if fraction(seed+'/draw')>=min(1,rate):continue
                 weights=SPECIES[habitat];draw=fraction(seed+'/type')*sum(v for _,v in weights)
                 species=weights[-1][0]

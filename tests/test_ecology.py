@@ -78,6 +78,19 @@ class EcologyPlanning(unittest.TestCase):
 
 @unittest.skipUnless(NATIVE,'Requires bundled native runtime')
 class NativeEcology(unittest.TestCase):
+    def test_residents_use_lower_floors_and_optional_safe_yards(self):
+        from villagers_backend import resident_position
+        class House:
+            offset=(0,0)
+            def top(self,x,z):return 31
+            def get(self,x,y,z):
+                if 0<=x<=10 and 0<=z<=10:
+                    return 'minecraft:oak_planks' if y in (10,15,20,25,30) or ((x in (0,10) or z in (0,10)) and 10<=y<=30) else 'minecraft:air'
+                return 'minecraft:grass_block' if y==10 else 'minecraft:dirt' if y<10 else 'minecraft:air'
+        plan={'id':'b'*24,'points':[[5,5]],'bounds':[0,0,10,10],'seed':3}
+        self.assertEqual(resident_position(House(),plan,False,set()),[5,11,5])
+        exterior=resident_position(House(),plan,True,set())
+        self.assertEqual(exterior[1],11);self.assertFalse(0<=exterior[0]<=10 and 0<=exterior[2]<=10)
     def test_sealed_magma_preserves_tunnel_and_cpu_gpu_codec_parity(self):
         from geology_backend import material_descriptor
         from gpu_driver import MaterialsGPU

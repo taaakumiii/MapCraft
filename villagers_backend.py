@@ -6,8 +6,9 @@ import sqlite3
 import struct
 import amulet_nbt as nbt
 import leveldb
-from furniture_backend import Blocks,MissingChunk,indoor
+from furniture_backend import Blocks,MissingChunk,indoor_floors
 from villagers import CREDITS
+from actor_batch import BufferedDB
 
 def storage_key(identity):
     # Bedrock's actor storage transforms the UniqueID, then writes big-endian.
@@ -28,6 +29,26 @@ def actor(identity,position,plan):
         'Attributes':nbt.ListTag([nbt.CompoundTag({'Name':nbt.StringTag('minecraft:health'),'Base':nbt.FloatTag(20),'Current':nbt.FloatTag(20),'Max':nbt.FloatTag(20),'Min':nbt.FloatTag(0)})]),
         'MapCraftVillagerId':nbt.StringTag(plan['id'])}))
 
+def resident_position(blocks,plan,outdoors,used):
+    interior=[]
+    for point in plan['points']:
+        try:interior.extend(indoor_floors(blocks,plan,point))
+        except MissingChunk:continue
+    # Do not hide every resident on the top floor of a tower.
+    interior.sort(key=lambda p:(p[1],p[0],p[2]))
+    exterior=[]
+    if outdoors:
+        from ecology_backend import surface
+        w,n,e,s=plan['bounds'];cx=(w+e)//2;cz=(n+s)//2
+        points=[(int(w)-2,int(cz)),(int(e)+2,int(cz)),(int(cx),int(n)-2),(int(cx),int(s)+2),
+                (int(w)-2,int(n)-2),(int(e)+2,int(s)+2),(int(w)-2,int(s)+2),(int(e)+2,int(n)-2)]
+        start=int(plan['id'][:8],16)%len(points)
+        for x,z in points[start:]+points[:start]:
+            position=surface(blocks,[x,z],{'type':'minecraft:villager_v2','width':.9})
+            if position:exterior.append(position)
+    choices=exterior+interior if outdoors and plan['seed']%3==0 else interior+exterior
+    return next((p for p in choices if all((p[0]+dx,p[2]+dz) not in used for dx in (-1,0,1) for dz in (-1,0,1))),None)
+
 def bake_villagers(world,compiled,*,state_path=None,notify=print):
     world=Path(world);state_path=Path(state_path or world/'mapcraft_villagers-state.sqlite')
     signature=hashlib.sha256(json.dumps(compiled,sort_keys=True,separators=(',',':')).encode()).hexdigest()
@@ -41,7 +62,10 @@ def bake_villagers(world,compiled,*,state_path=None,notify=print):
     journal.execute('CREATE TABLE IF NOT EXISTS residents(id TEXT PRIMARY KEY,status TEXT,actor_key BLOB)');journal.commit()
     counts={'placed':0,'existing':0,'blocked':0};db=None
     try:
-        db=leveldb.LevelDB(str(world/'db'),create_if_missing=False);blocks=Blocks(db,(0,0))
+        db=BufferedDB(leveldb.LevelDB(str(world/'db'),create_if_missing=False));blocks=Blocks(db,(0,0));used=set();staged=[]
+        def flush():
+            db.flush()
+            journal.executemany("UPDATE residents SET status='placed' WHERE id=?",[(identity,) for identity in staged]);journal.commit();staged.clear()
         if not journal.execute('SELECT 1 FROM residents LIMIT 1').fetchone():
             for actor_key,data in db.iterate():
                 if not actor_key.startswith(b'actorprefix'):continue
@@ -56,11 +80,7 @@ def bake_villagers(world,compiled,*,state_path=None,notify=print):
                 # Completed residents are not re-created after death or movement.
                 if previous[0]!='placing' or blocks.value(b'actorprefix'+previous[1]) is not None:
                     journal.execute("UPDATE residents SET status='placed' WHERE id=? AND status='placing'",(plan['id'],));journal.commit();counts['existing']+=1;continue
-            position=None
-            for point in plan['points']:
-                try:position=indoor(blocks,plan,point)
-                except MissingChunk:continue
-                if position:break
+            position=resident_position(blocks,plan,compiled['options'].get('outdoors_enabled',False),used)
             if position is None:counts['blocked']+=1;continue
             if previous:key=bytes(previous[1]);identity=((int.from_bytes(key,'big')-0x100000000)^0xffffffff00000000)&0xffffffffffffffff;identity=identity-2**64 if identity>=2**63 else identity
             else:
@@ -69,7 +89,9 @@ def bake_villagers(world,compiled,*,state_path=None,notify=print):
                     if sequence>=2**32:raise ValueError('村人の保存IDを確保できません。')
                     identity=-2**32+sequence;key=storage_key(identity)
                     if blocks.value(b'actorprefix'+key) is None:break
+            sequence=max(sequence,identity+2**32)
             x,y,z=position;digest_key=b'digp'+struct.pack('<ii',x//16,z//16)
+            used.add((x,z))
             digest=blocks.value(digest_key) or b''
             if len(digest)%8:raise ValueError('既存のActor参照が壊れています。村人配置を中止します。')
             journal.execute('INSERT OR REPLACE INTO residents VALUES(?,?,?)',(plan['id'],'placing',key));journal.commit()
@@ -78,7 +100,9 @@ def bake_villagers(world,compiled,*,state_path=None,notify=print):
             version_key=struct.pack('<iiB',x//16,z//16,44);version=blocks.value(version_key)
             if version is None or version[0]<40:batch[version_key]=bytes([40])
             db.putBatch(batch)
-            journal.execute("UPDATE residents SET status='placed' WHERE id=?",(plan['id'],));journal.commit();counts['placed']+=1
+            staged.append(plan['id']);counts['placed']+=1
+            if len(staged)>=128:flush()
+        flush()
         report={'version':1,'signature':signature,'mode':'native_vanilla_actors','counts':counts,'options':compiled['options'],'areas':compiled.get('areas',[]),'unmatched':compiled.get('unmatched',[])}
         (world/'mapcraft_villagers.json').write_text(json.dumps(report,ensure_ascii=False),encoding='utf-8')
         (world/'POPULATION-CREDITS.txt').write_text(CREDITS,encoding='utf-8')
@@ -107,7 +131,10 @@ def ensure_project_villagers(root,notify=print):
             signature={'options':settings,'population_as_of':'2026-01-01','version':1}
             if tile.get('villagers',{}).get('signature')==signature:report=tile['villagers']['report']
             else:
-                compiled=compile_villagers(ref,n.extract(source,tile['bbox']),towns,settings,prefectures=prefs,owned_bounds=bounds,notify=notify)
+                from parallel_plans import cached
+                prepared=cached(root,config,tile,path.name)
+                if prepared and prepared.get('villagers',{}).get('options')==settings:compiled=prepared['villagers']
+                else:compiled=compile_villagers(ref,n.extract(source,tile['bbox']),towns,settings,prefectures=prefs,owned_bounds=bounds,notify=notify)
                 report=bake_villagers(root/'world',compiled,state_path=root/'villagers-state.sqlite',notify=notify)
                 tile['villagers']={'signature':signature,'report':report};n.atomic_json(path,tile)
             totals['tiles']+=1

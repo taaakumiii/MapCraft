@@ -57,8 +57,9 @@ class App:
         self.fillground=tk.BooleanVar(value=True);self.geology_enabled=tk.BooleanVar(value=True);self.gpu_enabled=tk.BooleanVar(value=True);self.include_navigation=tk.BooleanVar(value=False)
         self.treasure_enabled=tk.BooleanVar(value=True);self.treasure_probability=tk.StringVar(value='25')
         self.beds_enabled=tk.BooleanVar(value=True);self.beds_probability=tk.StringVar(value='25')
-        self.villagers_enabled=tk.BooleanVar(value=False);self.villagers_ratio=tk.StringVar(value='1000')
-        self.wildlife_enabled=tk.BooleanVar(value=True);self.wildlife_density=tk.StringVar(value='100');self.bosses_enabled=tk.BooleanVar(value=False)
+        self.villagers_enabled=tk.BooleanVar(value=True);self.villagers_ratio=tk.StringVar(value='250');self.villagers_outdoors=tk.BooleanVar(value=True)
+        self.wildlife_enabled=tk.BooleanVar(value=True);self.wildlife_density=tk.StringVar(value='200');self.bosses_enabled=tk.BooleanVar(value=False);self.boss_beacons_enabled=tk.BooleanVar(value=False)
+        self.bathymetry_enabled=tk.BooleanVar(value=True)
         self.output = tk.StringVar(value=str(BASE/'worlds')); self.coordinates = tk.StringVar()
         self.style(); self.layout(); self.update_selection()
         root.after(200, self.fit); root.after(100, self.poll)
@@ -213,15 +214,22 @@ class App:
         ttk.Checkbutton(pane,text='住宅内に村人を生成する',variable=self.villagers_enabled,command=residents_changed).pack(anchor='w',pady=(7,4))
         self.label(pane,'実人口何人につき村人1人（小さいほど多く生成）',muted=True)
         resident_ratio.pack(anchor='w');residents_changed()
-        self.label(pane,'初期値はオフ。有効時は実人口1,000人につき1人。\n2026年1月の市区町村人口を生成面積で按分します。\n都会は多く、田舎は少なく、安全な住宅内だけに配置。\n通常の村人なので表示用アドオンなしでも遊べます。',muted=True,pady=5)
+        ttk.Checkbutton(pane,text='住宅周辺の屋外にも村人を配置する',variable=self.villagers_outdoors).pack(anchor='w',pady=4)
+        self.label(pane,'標準オン、実人口250人につき1人。小さいほど増加。\n2026年1月の市区町村人口を生成面積で按分します。\n屋内は低い階を優先。屋外は住宅周辺の安全な地面。\n通常の村人なので表示用アドオンなしでも遊べます。',muted=True,pady=5)
         ttk.Separator(pane).pack(fill='x',pady=10)
         self.label(pane,'動物の生息地とボス（Windows統合版）',bold=True)
+        ttk.Checkbutton(pane,text='海底地形を実データで補正する（Windows統合版）',variable=self.bathymetry_enabled).pack(anchor='w',pady=4)
+        self.label(pane,'NOAAの約400〜500mメッシュを補間。標準オン。\n既存の海水域だけを補正し、陸地・建物・地下設備を保護。\n深海は高さ制限に合わせ最大60ブロックに制限します。',muted=True,pady=5)
         density=ttk.Spinbox(pane,from_=0,to=300,increment=25,textvariable=self.wildlife_density,width=8)
         def wildlife_changed():density.configure(state='normal' if self.wildlife_enabled.get() else 'disabled')
         ttk.Checkbutton(pane,text='環境に合った動物を出現させる（標準オン）',variable=self.wildlife_enabled,command=wildlife_changed).pack(anchor='w',pady=(7,4))
-        self.label(pane,'動物の多さ（%・標準100、0〜300）',muted=True);density.pack(anchor='w');wildlife_changed()
+        self.label(pane,'動物の多さ（%・標準200、0〜300）',muted=True);density.pack(anchor='w');wildlife_changed()
         self.label(pane,'海辺はカメ、山はヤギやウサギ、森林はキツネなど。\n生成時に足場・水深・空きを確認して通常モブを保存。\n追加MOD・パック不要。独自の再出現処理はありません。',muted=True,pady=5)
-        ttk.Checkbutton(pane,text='神社・寺院・墓地にボスと攻略宝箱を配置する',variable=self.bosses_enabled).pack(anchor='w',pady=(7,4))
+        beacon_option=ttk.Checkbutton(pane,text='ボスの近くにビーコンを設置する（標準オフ）',variable=self.boss_beacons_enabled)
+        def bosses_changed():beacon_option.configure(state='normal' if self.bosses_enabled.get() else 'disabled')
+        ttk.Checkbutton(pane,text='神社・寺院・墓地にボスと攻略宝箱を配置する',variable=self.bosses_enabled,command=bosses_changed).pack(anchor='w',pady=(7,4))
+        beacon_option.pack(anchor='w',padx=(18,0),pady=(0,4));bosses_changed()
+        self.label(pane,'ビーコンは鉄の台座付き。空が開けた場所に配置し、\n建物・宝箱と重なる場合は省略します。追加MOD不要。\n討伐後も残ります。破壊後の再設置はありません。',muted=True,pady=5)
         self.label(pane,'ボスは標準オフ。面積に応じブルート、エルダー、\nウォーデン、ウィザーへ段階的に強化します。\n最大規模はエンドへの入口と宝箱を設置。\nドラゴンは通常のエンドで戦います。\nウィザー等の攻撃・地形破壊は通常の挙動です。\n討伐後の自動復活や宝箱の補充はありません。',muted=True,pady=5)
         ttk.Button(dialog,text='閉じる',command=dialog.destroy).pack(fill='x',padx=22,pady=(8,16))
         def bind_scroll(widget):
@@ -254,13 +262,13 @@ class App:
         from villagers import options
         try:ratio=float(self.villagers_ratio.get())
         except ValueError:raise ValueError('村人の人数比率を数値で入力してください。')
-        return options({'enabled':self.villagers_enabled.get(),'people_per_villager':ratio})
+        return options({'enabled':self.villagers_enabled.get(),'people_per_villager':ratio,'outdoors_enabled':self.villagers_outdoors.get()})
 
     def mob_options(self):
         from ecology import options
         try:density=float(self.wildlife_density.get())/100
         except ValueError:raise ValueError('動物の多さを0〜300%で入力してください。')
-        return options({'wildlife_enabled':self.wildlife_enabled.get(),'density':density,'bosses_enabled':self.bosses_enabled.get()})
+        return options({'wildlife_enabled':self.wildlife_enabled.get(),'density':density,'bosses_enabled':self.bosses_enabled.get(),'boss_beacons_enabled':self.boss_beacons_enabled.get()})
 
     def search(self):
         if self.searching:return
@@ -487,7 +495,7 @@ class App:
             self.last_folder=folder;self.last_world=None
             manifest={'app':'MapCraft '+VERSION,'job_schema':1,'engine':'Arnis v3.4.0','bbox':bbox,'scale':scale,'edition':self.job_edition,'fillground':self.fillground.get(),
                       'command':args,'status':'running','data_license':'https://www.openstreetmap.org/copyright',
-                      'scope':'User-selected bounding rectangle','treasure':treasure,'beds':beds,'villagers':villagers,'mobs':mobs,'geology':{'enabled':self.geology_enabled.get(),'backend':'auto' if self.gpu_enabled.get() else 'cpu'},'include_navigation':self.include_navigation.get()}
+                      'scope':'User-selected bounding rectangle','treasure':treasure,'beds':beds,'villagers':villagers,'mobs':mobs,'bathymetry':{'enabled':self.bathymetry_enabled.get(),'max_depth':60},'geology':{'enabled':self.geology_enabled.get(),'backend':'auto' if self.gpu_enabled.get() else 'cpu'},'include_navigation':self.include_navigation.get()}
             atomic_json(folder/'generation.json',manifest)
             self.launch_job(folder,manifest)
         except Exception as e:messagebox.showerror('生成を開始できません',str(e))
@@ -517,8 +525,9 @@ class App:
                     value=args[args.index(flag)+1];var.set(value if var is self.height else value=='true')
             self.vanilla.set('--vanilla-height' in args);self.fillground.set('--fillground' in args);self.geology_enabled.set(data.get('geology',{}).get('enabled',False));self.include_navigation.set(data.get('include_navigation',True))
             self.gpu_enabled.set(data.get('geology',{}).get('backend','auto')!='cpu')
-            self.villagers_enabled.set(data.get('villagers',{}).get('enabled',False));self.villagers_ratio.set(str(data.get('villagers',{}).get('people_per_villager',1000)))
-            mobs=data.get('mobs',{});self.wildlife_enabled.set(mobs.get('wildlife_enabled',False));self.wildlife_density.set(str(mobs.get('density',1)*100));self.bosses_enabled.set(mobs.get('bosses_enabled',False))
+            self.bathymetry_enabled.set(data.get('bathymetry',{}).get('enabled',False))
+            self.villagers_enabled.set(data.get('villagers',{}).get('enabled',False));self.villagers_ratio.set(str(data.get('villagers',{}).get('people_per_villager',1000)));self.villagers_outdoors.set(data.get('villagers',{}).get('outdoors_enabled',False))
+            mobs=data.get('mobs',{});self.wildlife_enabled.set(mobs.get('wildlife_enabled',False));self.wildlife_density.set(str(mobs.get('density',1)*100));self.bosses_enabled.set(mobs.get('bosses_enabled',False));self.boss_beacons_enabled.set(mobs.get('boss_beacons_enabled',False))
             for kind,enabled,probability in [('treasure',self.treasure_enabled,self.treasure_probability),('beds',self.beds_enabled,self.beds_probability)]:
                 enabled.set(data.get(kind,{}).get('enabled',True));probability.set(f"{data.get(kind,{}).get('probability',.25)*100:g}")
             self.update_selection();self.fit()
