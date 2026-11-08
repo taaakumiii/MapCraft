@@ -73,4 +73,20 @@ class Bathymetry(unittest.TestCase):
             db=original(str(root/'db'),create_if_missing=False);self.assertEqual(dict(db.iterate()),before)
             self.assertEqual(Blocks(db).get(0,4,0),'minecraft:sand');db.close()
 
+    def test_extension_corrects_new_chunks_without_changing_the_old_seabed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);self.world(root)
+            apply_directory(root,self.reference(),root/'cache',survey=self.survey(),coverage='first',notify=lambda _:None)
+            db=leveldb.LevelDB(str(root/'db'),create_if_missing=False);old=dict(db.iterate())
+            # A newly generated adjoining chunk starts with the original depth.
+            with tempfile.TemporaryDirectory() as source_folder:
+                source=Path(source_folder);self.world(source);other=leveldb.LevelDB(str(source/'db'),create_if_missing=False)
+                rows={struct.pack('<ii',1,0)+k[8:]:v for k,v in other.iterate()};other.close()
+            db.putBatch(rows);db.close()
+            report=apply_directory(root,self.reference(),root/'cache',survey=self.survey(),coverage='extended',notify=lambda _:None)
+            self.assertEqual(report['coverage'],'extended');self.assertGreater(report['counts']['changed_columns'],0)
+            db=leveldb.LevelDB(str(root/'db'),create_if_missing=False)
+            self.assertTrue(all(db.get(k)==v for k,v in old.items()))
+            self.assertEqual(Blocks(db).get(16,34,0),'minecraft:sand');db.close()
+
 if __name__=='__main__':unittest.main()

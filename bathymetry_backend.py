@@ -54,14 +54,14 @@ def freshwater_mask(reference,payload):
     if not shapes:return lambda x,z:False
     area=prep(unary_union(shapes));return lambda x,z:area.covers(Point(x,z))
 
-def apply_directory(world,reference,cache,settings=None,notify=print,*,survey=None,freshwater=None,state_path=None):
+def apply_directory(world,reference,cache,settings=None,notify=print,*,survey=None,freshwater=None,state_path=None,coverage=None):
     world=Path(world);settings=options(settings)
     if not settings['enabled']:return None
     signature=hashlib.sha256(json.dumps([1,asdict(reference),settings],sort_keys=True).encode()).hexdigest()
     marker=world/'mapcraft_bathymetry.json'
     if marker.exists():
         previous=json.loads(marker.read_text(encoding='utf-8'))
-        if previous.get('signature')==signature:return previous
+        if previous.get('signature')==signature and (coverage is None or previous.get('coverage')==coverage):return previous
     survey=survey or Survey(cache,notify);freshwater=freshwater or (lambda x,z:False)
     state_path=Path(state_path or world/'mapcraft_bathymetry-state.sqlite')
     journal=sqlite3.connect(state_path);journal.execute('CREATE TABLE IF NOT EXISTS chunks(x INTEGER,z INTEGER,signature TEXT,PRIMARY KEY(x,z))');journal.commit()
@@ -136,7 +136,7 @@ def apply_directory(world,reference,cache,settings=None,notify=print,*,survey=No
             if len(completed)>=64:
                 flush();notify(f'海底地形を補正: {counts["chunks"]:,}チャンク / {counts["changed_columns"]:,}列')
         flush()
-        report={'version':1,'signature':signature,'options':settings,'counts':counts,'source':'NOAA ETOPO 2022 15 arc-second','horizontal_resolution':'approximately 400–500m in Japan, interpolated','maximum_depth_blocks':settings['max_depth'],'preserves_land_and_structures':True}
+        report={'version':1,'signature':signature,'coverage':coverage,'options':settings,'counts':counts,'source':'NOAA ETOPO 2022 15 arc-second','horizontal_resolution':'approximately 400–500m in Japan, interpolated','maximum_depth_blocks':settings['max_depth'],'preserves_land_and_structures':True}
         marker.write_text(json.dumps(report,ensure_ascii=False),encoding='utf-8');(world/'BATHYMETRY-CREDITS.txt').write_text(CREDITS,encoding='utf-8')
         return report
     finally:
@@ -163,11 +163,13 @@ def ensure_project_bathymetry(root,notify=print):
     root=Path(root);config=n.load_project(root);settings=options(config.get('bathymetry',{'enabled':False}))
     if not settings['enabled']:return None
     ref=MapReference(config['map_id'],tuple(config['bbox']),config['scale'],1,1,projection=config['projection'],origin=tuple(config['origin']))
+    with closing(n.connect(root/'queue.sqlite')) as queue:tiles=queue.execute("SELECT tx,tz FROM tiles WHERE state='done' ORDER BY tz,tx").fetchall()
+    coverage=hashlib.sha256(json.dumps(tiles).encode()).hexdigest()
     with closing(n.connect(config['index'])) as source:
         @lru_cache(maxsize=32)
         def mask(tx,tz):return freshwater_mask(ref,n.extract(source,n.tile_spec(tx,tz,config['scale'],config['tile'])['bbox']))
         return apply_directory(root/'world',ref,root.parent.parent/'cache/bathymetry',settings,notify,
-            freshwater=lambda x,z:mask(x//config['tile'],z//config['tile'])(x,z),state_path=root/'bathymetry-state.sqlite')
+            freshwater=lambda x,z:mask(x//config['tile'],z//config['tile'])(x,z),state_path=root/'bathymetry-state.sqlite',coverage=coverage)
 
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--request',required=True);a=p.parse_args();request=json.loads(Path(a.request).read_text(encoding='utf-8'))
