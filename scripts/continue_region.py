@@ -43,6 +43,9 @@ def validate_request(request):
     for name in request['wait_states']:
         if Path(name).name!=name:raise ValueError('待機状態ファイル名が不正です。')
     if Path(request['filename']).name!=request['filename'] or not request['filename'].endswith('.mcworld'):raise ValueError('出力ファイル名が不正です。')
+    if 'ocean' in request:
+        from ocean_backend import options,flat_layers
+        settings=options(request['ocean']);flat_layers(config.get('ground_level',64),settings['depth'])
     return base,root,snapshot,config,plan
 
 def ready(request,main):
@@ -144,6 +147,9 @@ class Continuation:
         arm_phase(self.root,self.plan,request['phase'])
         config['active_phase']={'id':request['phase'],'title':request['title'],'total':self.plan['total'],'complete':False,'stop_after_export':True}
         config['world_name']=request['title'];n.atomic_json(self.root/'project.json',config)
+        if 'ocean' in request:
+            from ocean_backend import options
+            config['ocean']=options(request['ocean']);n.atomic_json(self.root/'project.json',config)
         n.atomic_json(self.root/'world/mapcraft_scope.json',{'scope':self.plan['scope'],'source':self.plan.get('source'),'snapshot':saved})
         if self.plan.get('source'):
             source=self.plan['source'];(self.root/'world/SCOPE-CREDITS.txt').write_text(f"出典：{source['name']}\n{source['url']}\n{source['license']}\nMapCraftの座標系へ投影し、沿岸を約500m含めた区画範囲に加工。元の23区版の周辺区画も保持。\n",encoding='utf-8')
@@ -162,7 +168,7 @@ class Continuation:
     def run(self,once=False):
         request=self.request
         with n.project_lock(self.control/'region-continuation-controller'):
-            self.save(status='waiting',stage='23区版の海底・村人・動物・ボス・ビーコン・出力の完了待ち',planned_total=self.plan['total'],planned_additional=self.plan['additional'],snapshot_path=str(self.snapshot))
+            self.save(status='waiting',stage='23区版の海底・村人・動物・ボス・ビーコン・出力の完了待ち',planned_total=self.plan['total'],planned_additional=self.plan['additional'],snapshot_path=str(self.snapshot),ocean=request.get('ocean',{'enabled':False}))
             while True:
                 main=read(self.control/'進捗.json')
                 resumable=self.state.get('snapshot') and main.get('phase')==request['phase'] and main.get('status') not in ('complete',)

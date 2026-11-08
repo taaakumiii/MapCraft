@@ -57,10 +57,13 @@ class ContinueRegion(unittest.TestCase):
             request,root,main=self.fixture(folder);destination=Path(request['snapshot']);destination.parent.mkdir();destination.write_bytes(b'keep this independent file')
             (root/'pause.request').write_text('MapCraft phase export: wards')
             original=c.digest(main['output']);job=c.Continuation(request)
+            request['ocean']={'enabled':True,'depth':60}
             def generate(phase,workers):
                 frozen=Path(job.state['snapshot']['path']);self.assertNotEqual(frozen,destination)
                 self.assertEqual(c.digest(frozen),original);self.assertEqual(destination.read_bytes(),b'keep this independent file')
                 self.assertEqual(c.n.load_project(root)['map_id'],request['map_id'])
+                self.assertEqual(c.n.load_project(root)['ocean'],{'enabled':True,'depth':60})
+                with zipfile.ZipFile(frozen) as archive:self.assertNotIn('ocean',json.loads(archive.read('mapcraft_national.json'))['project'])
                 with closing(sqlite3.connect(root/'queue.sqlite')) as db:self.assertEqual(db.execute('SELECT tx,state FROM tiles ORDER BY tx').fetchall(),[(0,'done'),(1,'done'),(2,'pending')])
             with patch.object(c.PhaseFinish,'generate',generate):job.transition(main)
             self.assertEqual(job.state['status'],'complete');self.assertEqual(destination.read_bytes(),b'keep this independent file')

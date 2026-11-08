@@ -507,6 +507,8 @@ def export_world(root,destination):
         atomic_json(root/'world/mapcraft_tracking.json',asdict(reference))
     from ecology_backend import ensure_project_ecology
     ensure_project_ecology(root,lambda text:emit('log',text=text))
+    from ocean_backend import ensure_project_ocean
+    ensure_project_ocean(root,lambda text:emit('log',text=text))
     destination=Path(destination);temporary=destination.with_suffix('.exporting')
     try:
         with zipfile.ZipFile(temporary,'w',zipfile.ZIP_DEFLATED,allowZip64=True) as archive:
