@@ -34,6 +34,17 @@ class LootBalance(unittest.TestCase):
 
 @unittest.skipUnless(NATIVE,'Run with the bundled native Python runtime')
 class NativeFurniture(unittest.TestCase):
+    def test_parallel_geology_matches_serial(self):
+        from geology_backend import encode,decorated_records
+        palette=[nbt.NamedTag(nbt.CompoundTag({'name':nbt.StringTag(name),'states':nbt.CompoundTag({}),'version':nbt.IntTag(18168865)}))
+                 for name in ('minecraft:stone','minecraft:diamond_ore','minecraft:air')]
+        indices=np.zeros(4096,dtype=np.uint32);indices[::11]=1;indices[::13]=2
+        data=encode(bytes((9,1,0)),[(indices,palette)])
+        rocks=('granite','basalt','volcanic','limestone','sandstone','mudstone','metamorphic','sedimentary','sediment','fill','drained','unknown')
+        rows=[(struct.pack('<iiBb',i,-1,47,section),data,i,-1,section,rock,(430000,-75000))
+              for i,rock in enumerate(rocks) for section in range(4)]
+        self.assertEqual(list(decorated_records(iter(rows),1)),list(decorated_records(iter(rows),4)))
+
     def test_cross_chunk_bed_inventory_and_no_refill(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary)

@@ -1,5 +1,8 @@
 """Conservative stone-only geological decoration of private Arnis Bedrock output."""
 from dataclasses import asdict
+from collections import deque
+from concurrent.futures import ProcessPoolExecutor
+from itertools import islice
 import argparse
 import json
 import os
@@ -8,6 +11,7 @@ import shutil
 import struct
 import sys
 import tempfile
+import time
 import zipfile
 BASE=Path(__file__).resolve().parent
 sys.path.insert(0,str(BASE))
@@ -93,10 +97,36 @@ def decorate(data,cx,cz,section,rock,offset=(0,0)):
         indices[changed&(names==name)]=slots[name]
     return encode(data[:3],layers),int(changed.sum())
 
-def apply_directory(world,reference,cache,notify=print,offset=(0,0),survey=None):
+def decorate_batch(rows):
+    # Workers receive bytes and coordinates only. They never open LevelDB.
+    return [(key,*decorate(value,cx,cz,section,rock,offset)) for key,value,cx,cz,section,rock,offset in rows]
+
+
+def decorated_records(rows,workers):
+    if workers==1:
+        for row in rows:yield decorate_batch([row])[0]
+        return
+    # Python 3.12 Executor.map eagerly consumes an iterator. Bound the number
+    # of in-flight batches so a large world never builds a huge RAM queue.
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        pending=deque();source=iter(rows);exhausted=False
+        while pending or not exhausted:
+            while len(pending)<workers*2 and not exhausted:
+                batch=list(islice(source,128))
+                if batch:pending.append(pool.submit(decorate_batch,batch))
+                else:exhausted=True
+            if pending:yield from pending.popleft().result()
+
+
+def apply_directory(world,reference,cache,notify=print,offset=(0,0),survey=None,workers=None):
+    workers=int(os.environ.get('MAPCRAFT_GEOLOGY_WORKERS','1')) if workers is None else workers
+    if not 1<=workers<=32:raise ValueError('地盤処理の並列数は1〜32で指定してください。')
+    started=time.monotonic()
     world=Path(world);survey=survey or Survey(cache,notify);db=leveldb.LevelDB(str(world/'db'),create_if_missing=False)
     batch={};changed=0;processed=0;profiles={};last=None
-    try:
+    if workers>1:notify(f'地盤処理: {workers}プロセスで計算（DB保存は1プロセス）')
+    def records():
+        nonlocal last
         for key,value in db.iterate():
             if len(key)!=10 or key[8]!=47:continue
             section=struct.unpack('b',key[9:])[0]
@@ -105,7 +135,9 @@ def apply_directory(world,reference,cache,notify=print,offset=(0,0),survey=None)
             if last!=chunk:
                 lat,lon=reference.geographic(cx*16+8+offset[0],cz*16+8+offset[1]);rock=survey.sample(lat,lon);last=chunk
                 profiles[rock]=profiles.get(rock,0)+1
-            result,count=decorate(value,cx,cz,section,rock,offset)
+            yield key,value,cx,cz,section,rock,offset
+    try:
+        for key,result,count in decorated_records(records(),workers):
             if count:batch[key]=result;changed+=count
             processed+=1
             if processed%1024==0:
@@ -113,7 +145,7 @@ def apply_directory(world,reference,cache,notify=print,offset=(0,0),survey=None)
                 notify(f'地盤反映: {processed:,} サブチャンク / {changed:,} ブロック変更')
         if batch:db.putBatch(batch)
     finally:db.close()
-    record={'version':VERSION,'profiles':profiles,'changed_blocks':changed,'scope':'Only original plain stone at Y=1..56; other blocks, air and secondary storage unchanged.','model':'Surface survey reference; depth and ore frequencies are fictional gameplay adaptation.'}
+    record={'version':VERSION,'profiles':profiles,'changed_blocks':changed,'workers':workers,'seconds':round(time.monotonic()-started,3),'scope':'Only original plain stone at Y=1..56; other blocks, air and secondary storage unchanged.','model':'Surface survey reference; depth and ore frequencies are fictional gameplay adaptation.'}
     (world/'mapcraft_geology.json').write_text(json.dumps(record,ensure_ascii=False),encoding='utf-8')
     (world/'GEOLOGY-CREDITS.txt').write_text(CREDITS,encoding='utf-8')
     return record

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Optional bounded process pool for geological calculations, with a single LevelDB writer and identical native block results.
+- Region phases hold future tiles, safely hand over at a tile boundary, export the completed region and stop while retaining the national project.
+
 ## 0.14.0-preview
 
 - Bake ordinary Bedrock chests, balanced regional inventories and both bed halves into creator outputs before play; no furniture add-on is required.
