@@ -85,6 +85,8 @@ APIの一次資料：[CUDA Driver API](https://docs.nvidia.com/cuda/cuda-driver-
 
 ## 完成版を別保存してから同じプロジェクトを拡張
 
+全国座標のナビゲーションパックでは、`national_navigation.py`が生成済み区画と交差する市町村境界だけを切り出し、到着判定用の輪郭を約1mの許容差で簡略化します。境界のID・穴・離れた島を保持し、実地図の画像やゲーム内地形は変更しません。全国分の境界約119MBをそのままJavaScriptの静的importへ渡すと、標準Bedrockサーバーで`InternalError: out of memory`となり、到着通知と同じエントリーから読み込むミニマップも起動できません。23区の実データでは42自治体・約376KBとなり、同じサーバーで正常起動を確認しました。既存完成版のパック修正は0.19.3、以降の地域出力はパック改訂番号4以上とし、修正版のキャッシュと衝突しないようにします。
+
 `scripts/continue_region.py --request <request.json>`は、指定フェーズの家具・海底・村人・動物・ボス・ビーコンと完成出力を待ちます。作成用とコントローラーのロックを取得し、アーカイブのID・区画数・反映設定を検証してから、`base/完成ワールド`へ物理コピーします。SHA-256、ZIP内全ファイルのCRC、完了メタデータを確認した後で、同じ作成用プロジェクトの次フェーズを有効にします。既存の保存先は上書きせず、内容が違う場合は連番を付けます。
 
 要求JSONには`base`、`project`、固定座標の`map_id/projection/origin/scale/tile`、`from_phase/from_completed`、次の`phase/title/filename`、`snapshot`、`settings`、`plan/plan_sha256`、`wait_states`、完成版に要求する`mobs/villagers/bathymetry`設定、`workers`、`budget_bytes`、一意な`request_id`を指定します。`--once`は待機条件を1回だけ確認します。完了済みならコピーと拡張まで実行するため、本番での単なる診断には完成前に使用してください。

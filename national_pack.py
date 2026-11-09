@@ -28,12 +28,12 @@ def install_pack(root,config):
         treasure_enabled=config['treasure']['enabled'],treasure_probability=config['treasure']['probability'],
         beds_enabled=config.get('beds',{}).get('enabled',True),beds_probability=config.get('beds',{}).get('probability',.25),furniture_baked=config.get('furniture_baked',False))
     scripts=bp/'scripts';scripts.mkdir(exist_ok=True)
-    regions=scripts/'regions';regions.mkdir(exist_ok=True);region_keys=[]
+    regions=scripts/'regions';regions.mkdir(exist_ok=True);region_keys=[];generated_bounds=[]
     with connect(config['index']) as source,connect(root/'queue.sqlite') as queue:
         for tx,tz in queue.execute("SELECT tx,tz FROM tiles WHERE state='done' ORDER BY tz,tx"):
             tile_path=root/'tile_data'/f'{tx}_{tz}.json'
             tile=json.loads(tile_path.read_text(encoding='utf-8'))
-            bbox=tile['bbox'];s,w,n,e=bbox
+            bbox=tile['bbox'];s,w,n,e=bbox;generated_bounds.append(bbox)
             if tile['treasure'].get('version',1)<2 or (not ref.furniture_baked and tile['treasure'].get('unit')=='floor'):
                 data=compile_treasure(ref,extract(source,bbox),per_floor=ref.furniture_baked);size=config['tile']
                 data['plans']=[p for p in data['plans'] if tx*size<=p['points'][0][0]<(tx+1)*size and tz*size<=p['points'][0][1]<(tz+1)*size]
@@ -68,7 +68,8 @@ def install_pack(root,config):
                         shutil.copyfile(scratch/'cells'/('c'+code(level['offset']+row*level['cols']+col)+'.png'),textures/('c'+cell_code(ident)+'.png'))
             atlasdb.execute('INSERT INTO rendered VALUES(?,?)',(tx,tz));atlasdb.commit()
             emit('log',text=f'実地図を追加: {tx}, {tz}')
-        towns=[unpacked(row[0]) for row in source.execute('SELECT data FROM towns ORDER BY id')]
+        from national_navigation import regional_boundaries
+        towns=regional_boundaries((unpacked(row[0]) for row in source.execute('SELECT data FROM towns ORDER BY id')),generated_bounds)
     levels=[]
     for zoom in (12,14):
         cells={f'{x},{y}':cell_code(ident) for ident,x,y in atlasdb.execute('SELECT id,x,y FROM cells WHERE zoom=?',(zoom,))}
@@ -93,6 +94,9 @@ def install_pack(root,config):
     identity=uuid.UUID(ref.map_id);header=str(uuid.uuid5(identity,'behavior-header'));resource=str(uuid.uuid5(identity,'real-map-resources'))
     revision_path=root/'gameplay_pack_revision.json'
     revision=json.loads(revision_path.read_text(encoding='utf-8')).get('revision',0)+1 if revision_path.exists() else 0
+    # Revision 3 is the navigation-only repair for already exported worlds.
+    # New regional exports must supersede that repair when the area grows.
+    revision=max(4,revision)
     atomic_json(revision_path,{'revision':revision})
     version=[VERSION[0],VERSION[1],revision]
     for target,kind,ident,module in [(bp,'script',header,'script-module'),(rp,'resources',resource,'resource-module')]:
