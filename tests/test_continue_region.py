@@ -68,4 +68,42 @@ class ContinueRegion(unittest.TestCase):
             with patch.object(c.PhaseFinish,'generate',generate):job.transition(main)
             self.assertEqual(job.state['status'],'complete');self.assertEqual(destination.read_bytes(),b'keep this independent file')
 
+    def test_phase_export_mode_waits_for_final_output_and_predecessor(self):
+        with tempfile.TemporaryDirectory() as folder:
+            request,root,main=self.fixture(folder);request['completion_mode']='phase_export'
+            main.pop('postprocess_phase');self.assertTrue(c.ready(request,main))
+            main['status']='running';self.assertFalse(c.ready(request,main));main['status']='complete'
+            main['progress']['completed']=1;self.assertFalse(c.ready(request,main));main['progress']['completed']=2
+            c.n.atomic_json(Path(folder)/'自動生成/finished.json',{'status':'running'})
+            self.assertFalse(c.ready(request,main))
+            c.n.atomic_json(Path(folder)/'自動生成/finished.json',{'status':'complete'})
+            c.n.atomic_json(Path(folder)/'自動生成/進捗.json',main)
+            job=c.Continuation(request)
+            with patch.object(c.PhaseFinish,'generate') as generate:job.run(once=True)
+            generate.assert_called_once_with(2);self.assertTrue(Path(request['snapshot']).exists())
+
+    def test_waiter_does_not_take_the_running_predecessors_controller_lock(self):
+        with tempfile.TemporaryDirectory() as folder:
+            request,root,main=self.fixture(folder);main['status']='running'
+            c.n.atomic_json(Path(folder)/'自動生成/進捗.json',main);before=(root/'project.json').read_bytes()
+            with c.n.project_lock(Path(folder)/'自動生成/region-continuation-controller'):
+                job=c.Continuation(request);job.run(once=True)
+            self.assertEqual(job.state['status'],'waiting');self.assertEqual((root/'project.json').read_bytes(),before)
+
+    def test_source_ocean_and_navigation_must_be_complete_before_freezing(self):
+        with tempfile.TemporaryDirectory() as folder:
+            request,root,main=self.fixture(folder)
+            request.update(from_ocean={'enabled':True,'depth':60},require_navigation=True)
+            with zipfile.ZipFile(main['output'],'a') as archive:
+                archive.writestr('mapcraft_ocean.json',json.dumps({'options':request['from_ocean'],'runtime_pack':False}))
+                for kind,name,identity in [('behavior_packs','world_behavior_packs.json','b'),('resource_packs','world_resource_packs.json','r')]:
+                    archive.writestr(kind+'/mapcraft_national/manifest.json',json.dumps({'header':{'uuid':identity,'version':[0,19,4]}}))
+                    archive.writestr(name,json.dumps([{'pack_id':identity,'version':[0,19,4]}]))
+                archive.writestr('resource_packs/mapcraft_national/ui/hud_screen.json','{}')
+                archive.writestr('behavior_packs/mapcraft_national/scripts/municipalities.js','export const municipalities=[];')
+            c.verify_completed_archive(main['output'],request)
+            request['from_ocean']['depth']=30
+            with self.assertRaisesRegex(ValueError,'簡易海'):c.freeze_archive(main['output'],request['snapshot'],request)
+            self.assertFalse(Path(request['snapshot']).exists())
+
 if __name__=='__main__':unittest.main()

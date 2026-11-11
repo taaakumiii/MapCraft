@@ -34,6 +34,7 @@ def validate_request(request):
     if root==base or not root.is_relative_to(base):raise ValueError('作成用プロジェクトが指定フォルダー外です。')
     if not snapshot.is_relative_to(base/'完成ワールド') or snapshot.suffix!='.mcworld':raise ValueError('プレイ用保存先が不正です。')
     if request['from_phase']==request['phase']:raise ValueError('元のフェーズと拡張先は別のIDにしてください。')
+    if request.get('completion_mode','native_ecology') not in ('native_ecology','phase_export'):raise ValueError('完了待ちの方式が不正です。')
     config=n.load_project(root);plan=read(request['plan'])
     for key in ('map_id','projection','origin','scale','tile'):
         if config[key]!=request[key] or config[key]!=plan[key]:raise ValueError('ワールドのID・縮尺・座標系が一致しません: '+key)
@@ -50,7 +51,11 @@ def validate_request(request):
 
 def ready(request,main):
     if main.get('phase')!=request['from_phase']:return False
-    if main.get('status')!='complete' or main.get('postprocess_phase')!='native_ecology':return False
+    if main.get('status')!='complete':return False
+    if request.get('completion_mode','native_ecology')=='native_ecology' and main.get('postprocess_phase')!='native_ecology':return False
+    if request.get('completion_mode')=='phase_export':
+        progress=main.get('progress',{})
+        if progress.get('total')!=request['from_completed'] or progress.get('completed')!=request['from_completed']:return False
     for name in request['wait_states']:
         state=read(Path(request['base'])/'自動生成'/name)
         if state.get('status')!='complete':return False
@@ -62,13 +67,26 @@ def verify_completed_archive(path,request):
         if meta['project']['map_id']!=request['map_id'] or meta['progress']['completed']!=request['from_completed']:
             raise ValueError('完成アーカイブのワールドIDまたは区画数が一致しません。')
         phase=json.loads(archive.read('mapcraft_phase.json'))
-        if phase['id']!=request['from_phase'] or not phase.get('complete'):raise ValueError('対象の23区版が完成していません。')
+        if phase['id']!=request['from_phase'] or not phase.get('complete'):raise ValueError('保存対象の地域が完成していません。')
         ecology=json.loads(archive.read('mapcraft_ecology.json'))
         if ecology.get('options')!=request['mobs'] or ecology.get('runtime_pack') is not False:raise ValueError('動物・ボス・ビーコンの反映完了を確認できません。')
         villagers=json.loads(archive.read('mapcraft_villagers.json'))
         bathymetry=json.loads(archive.read('mapcraft_bathymetry.json'))
         if villagers['options']!=request['villagers'] or bathymetry['options']!=request['bathymetry']:
             raise ValueError('村人・海底の反映完了を確認できません。')
+        if 'from_ocean' in request:
+            ocean=json.loads(archive.read('mapcraft_ocean.json'))
+            if ocean.get('options')!=request['from_ocean'] or ocean.get('runtime_pack') is not False:raise ValueError('簡易海の反映完了を確認できません。')
+        if request.get('require_navigation'):
+            for folder,listing in (('behavior_packs','world_behavior_packs.json'),('resource_packs','world_resource_packs.json')):
+                prefix=folder+'/mapcraft_national/'
+                manifest=json.loads(archive.read(prefix+'manifest.json'))
+                enabled=json.loads(archive.read(listing))
+                if not any(p.get('pack_id')==manifest['header']['uuid'] and p.get('version')==manifest['header']['version'] for p in enabled):
+                    raise ValueError('実地図パックの有効化を確認できません。')
+            archive.getinfo('resource_packs/mapcraft_national/ui/hud_screen.json')
+            boundary=archive.getinfo('behavior_packs/mapcraft_national/scripts/municipalities.js')
+            if boundary.file_size>8*1024**2:raise ValueError('到着通知の境界データが大きいため保存を保留します。')
         if 'level.dat' not in archive.namelist() or 'db/CURRENT' not in archive.namelist():raise ValueError('プレイ用ワールドの構成が不足しています。')
     return meta
 
@@ -92,7 +110,7 @@ def freeze_archive(source,destination,request,notify=print):
         with source.open('rb') as input_file,temporary.open('xb') as output:
             while chunk:=input_file.read(8*1024**2):
                 output.write(chunk);h.update(chunk);copied+=len(chunk)
-                if copied-last>=512*1024**2:notify(f'23区完成版を別保存: {copied/1024**3:.1f}/{before.st_size/1024**3:.1f} GiB');last=copied
+                if copied-last>=512*1024**2:notify(f'地域完成版を別保存: {copied/1024**3:.1f}/{before.st_size/1024**3:.1f} GiB');last=copied
             output.flush();os.fsync(output.fileno())
         after=source.stat()
         if (before.st_size,before.st_mtime_ns)!=(after.st_size,after.st_mtime_ns) or h.hexdigest()!=source_digest or digest(temporary)!=source_digest:
@@ -119,20 +137,20 @@ class Continuation:
     def capacity(self,additional=0):
         world_bytes=folder_bytes(self.root/'world');reserve=world_bytes+additional+4*1024**3
         if folder_bytes(self.base)+reserve>self.request['budget_bytes'] or shutil.disk_usage(self.base).free<reserve:
-            raise RuntimeError('完成ファイル用の空きを確保できないため拡張を保留します。23区版と生成済みデータは保持しています。')
+            raise RuntimeError('完成ファイル用の空きを確保できないため拡張を保留します。別保存した完成版と生成済みデータは保持しています。')
     def transition(self,main):
         request=self.request
         saved=self.state.get('snapshot')
         if saved:
-            if not Path(saved['path']).exists() or digest(saved['path'])!=saved['sha256']:raise ValueError('保存済みの23区完成版を検証できません。拡張を保留します。')
+            if not Path(saved['path']).exists() or digest(saved['path'])!=saved['sha256']:raise ValueError('保存済みの地域完成版を検証できません。拡張を保留します。')
         else:
-            if not ready(request,main):raise ValueError('23区版の完成待ちです。')
+            if not ready(request,main):raise ValueError('前の地域の完成待ちです。')
             source=Path(main['output']).resolve()
             if not source.is_relative_to(self.base/'exports'):raise ValueError('元の完成ファイルが作成用出力先の外です。')
             self.capacity(source.stat().st_size)
-            self.save(status='saving_snapshot',stage='全要素を反映した23区完成版を検証して別保存')
+            self.save(status='saving_snapshot',stage='全要素を反映した地域完成版を検証して別保存')
             saved=freeze_archive(source,self.snapshot,request,lambda message:self.save(stage=message))
-            self.save(snapshot=saved,status='snapshot_saved',stage='23区完成版の別保存・整合性確認が完了')
+            self.save(snapshot=saved,status='snapshot_saved',stage='地域完成版の別保存・整合性確認が完了')
         with closing(n.connect(self.root/'queue.sqlite')) as queue:
             completed={tuple(row) for row in queue.execute("SELECT tx,tz FROM tiles WHERE state='done'")}
         if not completed<={tuple(t) for t in self.plan['tiles']}:raise ValueError('計画外の生成済み区画を保持して停止します。')
@@ -152,10 +170,10 @@ class Continuation:
             config['ocean']=options(request['ocean']);n.atomic_json(self.root/'project.json',config)
         n.atomic_json(self.root/'world/mapcraft_scope.json',{'scope':self.plan['scope'],'source':self.plan.get('source'),'snapshot':saved})
         if self.plan.get('source'):
-            source=self.plan['source'];(self.root/'world/SCOPE-CREDITS.txt').write_text(f"出典：{source['name']}\n{source['url']}\n{source['license']}\nMapCraftの座標系へ投影し、沿岸を約500m含めた区画範囲に加工。元の23区版の周辺区画も保持。\n",encoding='utf-8')
+            source=self.plan['source'];(self.root/'world/SCOPE-CREDITS.txt').write_text(f"出典：{source['name']}\n{source['url']}\n{source['license']}\nMapCraftの座標系へ投影し、沿岸を約500m含めた区画範囲に加工。前の地域の周辺区画も保持。\n",encoding='utf-8')
         if pause.exists():pause.unlink()
-        self.save(status='running',stage='保存済み23区を引き継ぎ、東京都の未生成区画を追加',snapshot=saved,progress=phase_counts(self.root,request['phase']))
-        settings=read(request['settings']);settings.update(priority='tokyo_prefecture_land_and_coast',budget_bytes=request['budget_bytes'])
+        self.save(status='running',stage='別保存した地域を引き継ぎ、'+request['title']+'の未生成区画を追加',snapshot=saved,progress=phase_counts(self.root,request['phase']))
+        settings=read(request['settings']);settings.update(priority=request.get('priority',request['phase']),budget_bytes=request['budget_bytes'])
         job=PhaseFinish(settings,self.plan,request['phase'],request['title'],request['filename'])
         original=n.run_tiles
         def guarded(*args,**kwargs):self.capacity();return original(*args,**kwargs)
@@ -164,11 +182,12 @@ class Continuation:
         except Exception as error:
             job.save(status='paused' if isinstance(error,InterruptedError) else 'failed',error=str(error));raise
         finally:n.run_tiles=original
-        self.save(status='complete',stage='東京都全域の出力完了',output=str(job.output),snapshot=saved,progress=phase_counts(self.root,request['phase']))
+        self.save(status='complete',stage=request['title']+'の出力完了',output=str(job.output),snapshot=saved,progress=phase_counts(self.root,request['phase']))
     def run(self,once=False):
         request=self.request
-        with n.project_lock(self.control/'region-continuation-controller'):
-            self.save(status='waiting',stage='23区版の海底・村人・動物・ボス・ビーコン・出力の完了待ち',planned_total=self.plan['total'],planned_additional=self.plan['additional'],snapshot_path=str(self.snapshot),ocean=request.get('ocean',{'enabled':False}))
+        controller='region-continuation-'+hashlib.sha256(request['request_id'].encode()).hexdigest()[:16]
+        with n.project_lock(self.control/controller):
+            self.save(status='waiting',stage=request.get('from_title',request['from_phase'])+'の全要素・最終出力の完了待ち',planned_total=self.plan['total'],planned_additional=self.plan['additional'],snapshot_path=str(self.snapshot),ocean=request.get('ocean',{'enabled':False}))
             while True:
                 main=read(self.control/'進捗.json')
                 resumable=self.state.get('snapshot') and main.get('phase')==request['phase'] and main.get('status') not in ('complete',)
@@ -182,7 +201,7 @@ class Continuation:
                     except RuntimeError as error:
                         if '別の生成処理が使用中' not in str(error):raise
                 if self.state.get('snapshot') and main.get('phase')==request['phase'] and main.get('status')=='complete':
-                    self.save(status='complete',stage='東京都全域の完成出力を確認',output=main['output']);return
+                    self.save(status='complete',stage=request['title']+'の完成出力を確認',output=main['output']);return
                 if once:return
                 time.sleep(15)
 

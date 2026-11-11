@@ -91,6 +91,10 @@ APIの一次資料：[CUDA Driver API](https://docs.nvidia.com/cuda/cuda-driver-
 
 要求JSONには`base`、`project`、固定座標の`map_id/projection/origin/scale/tile`、`from_phase/from_completed`、次の`phase/title/filename`、`snapshot`、`settings`、`plan/plan_sha256`、`wait_states`、完成版に要求する`mobs/villagers/bathymetry`設定、`workers`、`budget_bytes`、一意な`request_id`を指定します。`--once`は待機条件を1回だけ確認します。完了済みならコピーと拡張まで実行するため、本番での単なる診断には完成前に使用してください。
 
+通常の地域出力から次の地域を予約する場合は`completion_mode: "phase_export"`を指定します。元のフェーズの`status=complete`と区画数の一致、`wait_states`内の前の継続コントローラーの完了を待ちます。既定の`native_ecology`方式は、旧23区版の追加後処理に使う`postprocess_phase=native_ecology`の完了条件を維持します。コントローラーロックは`request_id`ごとに分かれるため、現在の地域を止めずに、次の地域の待機処理を起動できます。作成用DBへアクセスする際は、共通のフェーズ・制御・プロジェクトロックも取得します。
+
+`from_ocean`には保存元の簡易海設定を指定できます。`require_navigation: true`はリソース・ビヘイビアパックのUUID・有効なバージョン・HUD・到着境界ファイルの存在とサイズを確認します。区画数・全要素の反映設定・完成マーカー・ZIPの整合性のいずれかが不正なら、次の地域を有効にしません。`priority`は次の地域の進捗に記載する識別名、`from_title`は待機画面の地域名です。
+
 再試行では保存済みコピーを再検証し、生成済み区画を維持します。容量上限には作成データ、別保存した完成版、新たな完成出力の予約領域を含めます。停止要求は対象フェーズの出力用停止だけを解除し、ユーザーの別の停止要求は保持します。既にインストールしたプレイ用ワールドを開きません。プレイ側の建築や持ち物は、後で作成側へ自動統合されません。Windowsの再起動後には同じ要求ファイルで再実行が必要です。
 
 海底補正の区画被覆ハッシュは完成マーカーの再利用判定に使います。拡張後は新しい区画も補正しますが、チャンク別ジャーナルの設定識別子は変えず、既に補正したチャンクを再加工しません。
