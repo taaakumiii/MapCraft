@@ -54,7 +54,7 @@ def freshwater_mask(reference,payload):
     if not shapes:return lambda x,z:False
     area=prep(unary_union(shapes));return lambda x,z:area.covers(Point(x,z))
 
-def apply_directory(world,reference,cache,settings=None,notify=print,*,survey=None,freshwater=None,state_path=None,coverage=None):
+def apply_directory(world,reference,cache,settings=None,notify=print,*,survey=None,freshwater=None,state_path=None,coverage=None,database=None,publish=True):
     world=Path(world);settings=options(settings)
     if not settings['enabled']:return None
     signature=hashlib.sha256(json.dumps([1,asdict(reference),settings],sort_keys=True).encode()).hexdigest()
@@ -67,7 +67,7 @@ def apply_directory(world,reference,cache,settings=None,notify=print,*,survey=No
     journal=sqlite3.connect(state_path);journal.execute('CREATE TABLE IF NOT EXISTS chunks(x INTEGER,z INTEGER,signature TEXT,PRIMARY KEY(x,z))');journal.commit()
     db=None;counts={'chunks':0,'changed_columns':0,'clipped_columns':0,'protected_columns':0,'missing_depth':0};pending={};completed=[]
     try:
-        db=leveldb.LevelDB(str(world/'db'),create_if_missing=False)
+        db=database if database is not None else leveldb.LevelDB(str(world/'db'),create_if_missing=False)
         def flush():
             nonlocal pending,completed
             if pending:db.putBatch(dict(sorted(pending.items())))
@@ -134,13 +134,14 @@ def apply_directory(world,reference,cache,settings=None,notify=print,*,survey=No
             for sy in dirty:pending[prefix+struct.pack('<Bb',47,sy)]=encode(*sections[sy])
             completed.append((cx,cz));counts['chunks']+=1
             if len(completed)>=64:
-                flush();notify(f'海底地形を補正: {counts["chunks"]:,}チャンク / {counts["changed_columns"]:,}列')
+                flush();notify(f'海底地形を'+('補正' if publish else '計算（一括保存用）')+f': {counts["chunks"]:,}チャンク / {counts["changed_columns"]:,}列')
         flush()
         report={'version':1,'signature':signature,'coverage':coverage,'options':settings,'counts':counts,'source':'NOAA ETOPO 2022 15 arc-second','horizontal_resolution':'approximately 400–500m in Japan, interpolated','maximum_depth_blocks':settings['max_depth'],'preserves_land_and_structures':True}
-        marker.write_text(json.dumps(report,ensure_ascii=False),encoding='utf-8');(world/'BATHYMETRY-CREDITS.txt').write_text(CREDITS,encoding='utf-8')
+        if publish:
+            marker.write_text(json.dumps(report,ensure_ascii=False),encoding='utf-8');(world/'BATHYMETRY-CREDITS.txt').write_text(CREDITS,encoding='utf-8')
         return report
     finally:
-        if db is not None:db.close()
+        if db is not None and database is None:db.close()
         journal.close()
 
 def apply_archive(path,reference,cache,settings,osm=None,notify=print):
@@ -168,6 +169,12 @@ def ensure_project_bathymetry(root,notify=print):
     with closing(n.connect(config['index'])) as source:
         @lru_cache(maxsize=32)
         def mask(tx,tz):return freshwater_mask(ref,n.extract(source,n.tile_spec(tx,tz,config['scale'],config['tile'])['bbox']))
+        if os.environ.get('MAPCRAFT_BATHYMETRY_BULK')=='1' or (root/'bulk-bathymetry.enabled').exists():
+            from bathymetry_bulk import apply_bulk
+            with closing(n.connect(root/'queue.sqlite')) as queue:
+                expected_chunks=queue.execute("SELECT COALESCE(SUM(chunks),0) FROM tiles WHERE state='done'").fetchone()[0]
+            return apply_bulk(root,ref,root.parent.parent/'cache/bathymetry',settings,notify,
+                              freshwater=lambda x,z:mask(x//config['tile'],z//config['tile'])(x,z),coverage=coverage,expected_chunks=expected_chunks)
         return apply_directory(root/'world',ref,root.parent.parent/'cache/bathymetry',settings,notify,
             freshwater=lambda x,z:mask(x//config['tile'],z//config['tile'])(x,z),state_path=root/'bathymetry-state.sqlite',coverage=coverage)
 

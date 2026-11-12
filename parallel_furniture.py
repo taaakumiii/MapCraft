@@ -62,12 +62,13 @@ def load_shard(path,identity):
 def record_hash(hasher,key,value):
     hasher.update(struct.pack('<IQ',len(key),len(value)));hasher.update(key);hasher.update(value)
 
-def rebuilt_database(db,overlay,target,notify,batch_bytes):
+def rebuilt_database(db,overlay,target,notify,batch_bytes,*,patches_sorted=None,expected_chunks=None):
     target=Path(target);output=leveldb.LevelDB(str(target),create_if_missing=True)
-    expected=hashlib.sha256();patches=iter(sorted(overlay.items()));patch=next(patches,None);batch={};size=count=0
+    expected=hashlib.sha256();patches=iter(sorted(overlay.items()) if patches_sorted is None else patches_sorted);patch=next(patches,None);batch={};size=count=chunks=0
     def append(key,value):
-        nonlocal size,count,batch
+        nonlocal size,count,batch,chunks
         record_hash(expected,key,value);batch[key]=value;size+=len(key)+len(value);count+=1
+        chunks+=int(len(key)==9 and key[8]==43)
         if size>=batch_bytes:
             output.putBatch(batch);batch={};size=0
             notify(f'ワールドDBを順序保存: {count:,} レコード')
@@ -80,12 +81,15 @@ def rebuilt_database(db,overlay,target,notify,batch_bytes):
         while patch is not None:append(*patch);patch=next(patches,None)
         if batch:output.putBatch(batch)
     finally:output.close()
+    if expected_chunks is not None and chunks!=expected_chunks:raise ValueError(f'新しいDBのチャンク数が不一致です: {chunks:,}/{expected_chunks:,}。元のDBは保持しています。')
     check=leveldb.LevelDB(str(target),create_if_missing=False);actual=hashlib.sha256();checked=0
     try:
-        for key,value in check.iterate():record_hash(actual,key,value);checked+=1
+        for key,value in check.iterate():
+            record_hash(actual,key,value);checked+=1
+            if checked%1000000==0:notify(f'新DBの読み戻し検証: {checked:,}/{count:,} レコード')
     finally:check.close()
     if actual.digest()!=expected.digest() or count!=checked:raise ValueError('新しいDBの全レコード検証に失敗しました。元のDBを保持します。')
-    return {'records':count,'sha256':actual.hexdigest()}
+    return {'records':count,'sha256':actual.hexdigest(),'chunks':chunks}
 
 def recover_swap(root):
     root=Path(root).resolve();marker=root/'parallel-db-swap.json'

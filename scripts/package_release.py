@@ -11,7 +11,7 @@ from version import VERSION
 APP_FILES=['actor_batch.py','bathymetry.py','bathymetry_backend.py','parallel_furniture.py','parallel_plans.py','ecology.py','ecology_backend.py','villagers.py','villagers_backend.py','volcanoes.py','active-volcanoes.json','municipal-population.json','gpu_driver.py','geology_gpu.ptx','geology_gpu.cu','scripts/finish_phase.py','scripts/finalize_furniture.py','furniture_backend.py','loot_native.py','app.py','arrival.js','autogen.py','beds.js','beds.py','core.py','geocoder.py','geology.py',
  'geology_backend.py','gps.js','jobcache.py','jobs.py','loot.js','loot.py','minimap.py','municipalities.py',
  'national_backend.py','national_pack.py','national_navigation.py','national_state.py','national_ui.py','nativepack.py','realmap.js',
- 'realmap.py','regions-loader.js','survival-items.json','tracking.py','treasure.js','treasure.py','version.py','scripts/continue_region.py','ocean_backend.py']
+ 'realmap.py','regions-loader.js','survival-items.json','tracking.py','treasure.js','treasure.py','version.py','scripts/continue_region.py','ocean_backend.py','bathymetry_bulk.py']
 
 def paths(folder):
     return sorted(p for p in folder.rglob('*') if p.is_file() and '__pycache__' not in p.parts and p.suffix!='.pyc')
