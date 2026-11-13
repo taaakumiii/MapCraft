@@ -9,6 +9,7 @@ import uuid
 import zipfile
 
 from version import PACK_VERSION as VERSION
+from map_water import RENDER_STYLE
 ASSETS=Path(__file__).resolve().parent/'native_minimap'
 RESOURCE_UUID=str(uuid.uuid5(uuid.NAMESPACE_URL,'MapCraft/native-minimap/resource'))
 
@@ -16,7 +17,7 @@ def pack_version(reference,map_root):
     # Re-importing an identical UUID/version is ignored by Minecraft. Advance
     # the patch revision when the creator changes the treasure options.
     path=map_root/'pack_revision.json'
-    settings=[reference.treasure_enabled,reference.treasure_probability,reference.beds_enabled,reference.beds_probability,reference.furniture_baked]
+    settings=[reference.treasure_enabled,reference.treasure_probability,reference.beds_enabled,reference.beds_probability,reference.furniture_baked,RENDER_STYLE]
     previous=json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
     revision=previous.get('revision',0) if previous.get('base')==VERSION else 0
     if previous.get('base')==VERSION and previous.get('settings')!=settings:revision+=1

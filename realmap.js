@@ -42,7 +42,7 @@ function update(player) {
     packet+=fixed(`${compass[arrow]} X${Math.floor(x)} Z${Math.floor(z)}`);
     for (let row=0;row<5;row++) for(let col=0;col<5;col++) {
         const a=cx-2+col-level.gx,b=cy-2+row-level.gy;
-        packet+=atlas.sparse ? (level.cells[`${cx-2+col},${cy-2+row}`] ?? 'zzzzzzzz') :
+        packet+=atlas.sparse ? (level.cells[`${cx-2+col},${cy-2+row}`] ?? atlas.defaultCell ?? 'zzzzzzzz') :
             a>=0 && b>=0 && a<level.cols && b<level.rows ? hex(level.offset+b*level.cols+a) : 'zzzz';
     }
     if (packet!==s.last || system.currentTick-s.resent>80) {

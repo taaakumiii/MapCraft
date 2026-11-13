@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.19.2-preview
+
+- Render offline minimap seas from directed OSM coastlines, and use a clear blue for seas, rivers, lakes and reservoirs. Preserve islands in water multipolygons and leave incomplete coastlines unfilled.
+- Invalidate older navigation imagery on export without regenerating terrain; native ocean worlds also show blue across the synthetic sea between mapped islands.
+
 ## 0.19.1-preview
 
 - Enable boss-location beacons by default while preserving an explicit off setting. Boss generation remains separately configurable.

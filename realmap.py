@@ -11,6 +11,7 @@ import urllib.parse
 import urllib.request
 from PIL import Image, ImageDraw, ImageFont
 from core import pixel
+from map_water import LAND_COLOUR,WATER_COLOUR,RENDER_STYLE,water_areas,ocean_area,paint_water
 
 CELL=32
 FRAME_SIZE=(54,74)
@@ -30,7 +31,9 @@ def cache_root():
 def fetch_osm(reference,path):
     s,w,n,e=reference.bbox
     box=','.join(str(v) for v in (s-.004,w-.005,n+.004,e+.005))
-    filters=['way[highway]','way[building]','way[waterway]','way[natural=water]',
+    filters=['way[highway]','way[building]','way[waterway]','way[natural=water]','way[natural=coastline]',
+             'relation[type=multipolygon][natural=water]','relation[type=multipolygon][waterway=riverbank]',
+             'relation[type=multipolygon][landuse=reservoir]',
              'way[landuse]','way[leisure=park]','way[railway]',
              'node[name][place]','node[name][railway=station]','node[name][amenity]']
     query='[out:json][timeout:60];('+''.join(f'{f}({box});' for f in filters)+');out geom;'
@@ -41,7 +44,8 @@ def fetch_osm(reference,path):
             with urllib.request.urlopen(request,timeout=75) as response:data=response.read()
             obj=json.loads(data)
             if not isinstance(obj.get('elements'),list):raise ValueError('地図データを取得できませんでした。')
-            path.write_bytes(data);return
+            obj['mapcraft_water_query']=RENDER_STYLE
+            path.write_text(json.dumps(obj,ensure_ascii=False,separators=(',',':')),encoding='utf-8');return
         except Exception as error:last=error
     raise RuntimeError('現実の地図データを取得できませんでした。通信状況を確認して再実行してください。 '+str(last))
 
@@ -55,17 +59,23 @@ def prepare_map(reference,source=None,root=None,zooms=None):
     from jobcache import atomic_json,source_hash
     root=Path(root) if root else cache_root()/reference.map_id
     root.mkdir(parents=True,exist_ok=True);datafile=root/'osm.json';meta=root/'atlas.json'
+    render_key={'style':RENDER_STYLE,'bbox':list(reference.bbox),'zooms':list(zooms) if zooms else [14,15,16]}
     if meta.exists() and (root/'cells').exists() and (root/'CREDITS.txt').exists() and datafile.exists():
         try:
             atlas=json.loads(meta.read_text(encoding='utf-8'))
             expected={'c'+code(i)+'.png' for i in range(atlas['cells'])}|{'czzzz.png'}
-            if expected<={p.name for p in (root/'cells').glob('*.png')} and source_hash(datafile)==atlas.get('sha256'):return root,atlas
+            if atlas.get('render_key')==render_key and expected<={p.name for p in (root/'cells').glob('*.png')} and source_hash(datafile)==atlas.get('sha256'):return root,atlas
         except (OSError,ValueError,KeyError,TypeError):pass
     if not datafile.exists():
         if source and Path(source).exists():
             temporary=datafile.with_suffix('.copying');shutil.copyfile(source,temporary);os.replace(temporary,datafile)
         else:fetch_osm(reference,datafile)
-    payload=json.loads(datafile.read_text(encoding='utf-8'));elements=payload['elements']
+    payload=json.loads(datafile.read_text(encoding='utf-8'))
+    if source is None and str(payload.get('generator','')).startswith('Overpass') and payload.get('mapcraft_water_query')!=RENDER_STYLE:
+        # Old downloaded maps omitted coastlines and lake relations. Local PBF
+        # extracts and explicit caller datasets never require a network request.
+        fetch_osm(reference,datafile);payload=json.loads(datafile.read_text(encoding='utf-8'))
+    elements=payload['elements']
     nodes={v['id']:(v['lat'],v['lon']) for v in elements if v.get('type')=='node' and 'lat' in v}
     features=[]
     for item in elements:
@@ -87,7 +97,10 @@ def prepare_map(reference,source=None,root=None,zooms=None):
     levels=[];next_id=0
     for z in zooms:
         gx,gy,right,bottom=bounds(z);width,height=(right-gx)*CELL,(bottom-gy)*CELL
-        image=Image.new('RGB',(width,height),'#f2f1eb');draw=ImageDraw.Draw(image)
+        image=Image.new('RGB',(width,height),LAND_COLOUR);draw=ImageDraw.Draw(image)
+        def project(lat,lon):
+            x,y=pixel(lat,lon,z)
+            return x-gx*CELL,y-gy*CELL
         prepared=[]
         for tags,points in features:
             coords=[(round(pixel(lat,lon,z)[0]-gx*CELL),round(pixel(lat,lon,z)[1]-gy*CELL)) for lat,lon in points]
@@ -100,13 +113,17 @@ def prepare_map(reference,source=None,root=None,zooms=None):
             if use in ('forest','wood'):colour='#d4e3c7'
             elif use in ('farmland','farmyard','orchard','meadow','grass'):colour='#e6ead4'
             elif tags.get('leisure')=='park':colour='#cce4bc'
-            if tags.get('natural')=='water' or tags.get('water'):colour='#b4d9eb'
             if colour:draw.polygon(points,fill=colour)
+        coasts=[[project(lat,lon) for lat,lon in points] for tags,points in features if tags.get('natural')=='coastline' and len(points)>1]
+        areas=water_areas(elements,nodes,project)
+        areas.append(ocean_area(coasts,(0,0,width,height)))
+        paint_water(image,areas)
         for tags,points in prepared:
             if len(points)>2 and tags.get('building') not in (None,'no'):
                 draw.polygon(points,fill='#e0dbd0',outline='#bfb8ad')
         for tags,points in prepared:
-            if len(points)>1 and 'waterway' in tags:draw.line(points,fill='#94c9e2',width=5 if tags['waterway']=='river' else 2,joint='curve')
+            if len(points)>1 and tags.get('waterway') in ('river','stream','canal','drain','ditch'):
+                draw.line(points,fill=WATER_COLOUR,width=5 if tags['waterway']=='river' else 2,joint='curve')
         roads=[(tags,points) for tags,points in prepared if 'highway' in tags and len(points)>1]
         widths={'motorway':7,'trunk':6,'primary':5,'secondary':5,'tertiary':4,'residential':3,'unclassified':3,'service':2}
         for tags,points in roads:
@@ -146,7 +163,7 @@ def prepare_map(reference,source=None,root=None,zooms=None):
         levels.append({'zoom':z,'gx':gx,'gy':gy,'cols':cols,'rows':rows,'offset':offset})
     Image.new('RGB',(CELL,CELL),'#d8dce0').save(cells/'czzzz.png')
     result={'levels':levels,'cell':CELL,'cells':next_id,'source':'OpenStreetMap','license':'ODbL-1.0',
-            'copyright':'https://www.openstreetmap.org/copyright','sha256':source_hash(datafile)}
+            'copyright':'https://www.openstreetmap.org/copyright','sha256':source_hash(datafile),'render_key':render_key}
     (root/'CREDITS.txt').write_text('Map data © OpenStreetMap contributors, ODbL 1.0.\nhttps://www.openstreetmap.org/copyright\nhttps://opendatacommons.org/licenses/odbl/1-0/\nCartography rendered by MapCraft from the included OSM vector dataset.\n',encoding='utf-8')
     atomic_json(meta,result)
     return root,result

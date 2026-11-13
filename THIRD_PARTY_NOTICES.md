@@ -19,6 +19,8 @@ MapCraft's own code is MIT-licensed. That license does not replace any third-par
 | Mojang Bedrock Samples item identifiers | Identifier-derived catalogue only; no original Mojang models, sounds or textures are distributed by this catalogue. See `licenses/Item-catalogue-NOTICE.txt`. |
 | Mojang Bedrock Samples entity identifiers / saved state | Vanilla entity identifiers and component-group names checked against official samples. Native mob/health/equipment/portal/chest serialization is MapCraft code; no original entity JSON, artwork or models are bundled. https://github.com/Mojang/bedrock-samples |
 
+The frozen GUI also includes Shapely/GEOS and NumPy for offline water cartography. Their wheel license trees are bundled inside the executable under `licenses/GUI-shapely` and `licenses/GUI-numpy`; build versions are pinned in `requirements-build.txt`.
+
 Generated worlds may use additional sources through Arnis options such as terrain, building supplementation and tree data. Preserve the engine's source/asset notices and the generated pack credits when distributing worlds.
 
 ODbL-derived map images and vector/boundary datasets are not relicensed under MIT. Keep the OSM source data and attribution supplied with an add-on. This project is not an official Minecraft product and is not approved by or associated with Mojang or Microsoft.

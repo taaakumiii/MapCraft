@@ -678,8 +678,12 @@ if __name__=='__main__':
         try:
             from loot import script as loot_script
             from realmap import frame_bytes
+            from map_water import ocean_area
             report['catalogue_loaded']=loot_script().startswith('// Item identifiers:')
             report['hud_loaded']=len(frame_bytes())>0
+            from shapely.geometry import Point
+            sea=ocean_area([[(5,-1),(5,11)]],(0,0,10,10))
+            report['water_cartography_valid']=sea.covers(Point(2,5)) and not sea.covers(Point(8,5))
             report['engine_valid']=hashlib.sha256(ENGINE.read_bytes()).hexdigest()==ENGINE_SHA256
             report['gpu_assets_valid']=all((BASE/name).is_file() for name in ('gpu_driver.py','geology_gpu.ptx'))
             hidden=tk.Tk();hidden.withdraw();report['tk_version']=hidden.tk.call('info','patchlevel');hidden.destroy()
@@ -687,7 +691,7 @@ if __name__=='__main__':
                 'import leveldb,amulet_nbt,osmium,shapely,numpy,PIL;print("runtime-ok")'],capture_output=True,
                 creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),timeout=60)
             report['runtime_valid']=result.returncode==0 and b'runtime-ok' in result.stdout
-            report['ok']=all(report[k] for k in ('catalogue_loaded','hud_loaded','engine_valid','runtime_valid','gpu_assets_valid'))
+            report['ok']=all(report[k] for k in ('catalogue_loaded','hud_loaded','water_cartography_valid','engine_valid','runtime_valid','gpu_assets_valid'))
         except Exception as error:report['error']=str(error)
         destination.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
         sys.exit(0 if report['ok'] else 1)

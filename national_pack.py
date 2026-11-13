@@ -13,6 +13,7 @@ def install_pack(root,config):
     from national_backend import connect,extract,unpacked,atomic_json,emit
     from tracking import MapReference
     from realmap import prepare_map,hud_document,CELL,code,frame_bytes
+    from map_water import RENDER_STYLE,WATER_COLOUR
     from nativepack import ASSETS,VERSION
     from beds import compile_beds
     from treasure import compile_treasure
@@ -24,6 +25,8 @@ def install_pack(root,config):
     atlasdb=connect(root/'atlas.sqlite')
     atlasdb.executescript('CREATE TABLE IF NOT EXISTS cells(id INTEGER PRIMARY KEY,zoom INTEGER,x INTEGER,y INTEGER,UNIQUE(zoom,x,y));'
                          'CREATE TABLE IF NOT EXISTS rendered(tx INTEGER,tz INTEGER,PRIMARY KEY(tx,tz));')
+    if 'style' not in {row[1] for row in atlasdb.execute('PRAGMA table_info(rendered)')}:
+        atlasdb.execute('ALTER TABLE rendered ADD COLUMN style INTEGER NOT NULL DEFAULT 0');atlasdb.commit()
     ref=MapReference(config['map_id'],tuple(config['bbox']),config['scale'],1,1,projection='national_mercator',origin=tuple(config['origin']),
         treasure_enabled=config['treasure']['enabled'],treasure_probability=config['treasure']['probability'],
         beds_enabled=config.get('beds',{}).get('enabled',True),beds_probability=config.get('beds',{}).get('probability',.25),furniture_baked=config.get('furniture_baked',False))
@@ -49,7 +52,7 @@ def install_pack(root,config):
             if not ref.furniture_baked:
                 region_keys.append(key)
                 (regions/f't{key}.js').write_text('export const treasure='+json.dumps(tile['treasure']['plans'],separators=(',',':'))+';\nexport const beds='+json.dumps(beds['plans'],separators=(',',':'))+';\n',encoding='utf-8')
-            if atlasdb.execute('SELECT 1 FROM rendered WHERE tx=? AND tz=?',(tx,tz)).fetchone():continue
+            if atlasdb.execute('SELECT 1 FROM rendered WHERE tx=? AND tz=? AND style=?',(tx,tz,RENDER_STYLE)).fetchone():continue
             # Render neighbouring vectors too; every cell includes whole roads
             # and labels across the generation tile boundary, without tile APIs.
             payload=extract(source,(s-.015,w-.02,n+.015,e+.02))
@@ -66,7 +69,7 @@ def install_pack(root,config):
                         atlasdb.execute('INSERT OR IGNORE INTO cells(zoom,x,y) VALUES(?,?,?)',(level['zoom'],x,y))
                         ident=atlasdb.execute('SELECT id FROM cells WHERE zoom=? AND x=? AND y=?',(level['zoom'],x,y)).fetchone()[0]
                         shutil.copyfile(scratch/'cells'/('c'+code(level['offset']+row*level['cols']+col)+'.png'),textures/('c'+cell_code(ident)+'.png'))
-            atlasdb.execute('INSERT INTO rendered VALUES(?,?)',(tx,tz));atlasdb.commit()
+            atlasdb.execute('INSERT OR REPLACE INTO rendered(tx,tz,style) VALUES(?,?,?)',(tx,tz,RENDER_STYLE));atlasdb.commit()
             emit('log',text=f'実地図を追加: {tx}, {tz}')
         from national_navigation import regional_boundaries
         towns=regional_boundaries((unpacked(row[0]) for row in source.execute('SELECT data FROM towns ORDER BY id')),generated_bounds)
@@ -76,13 +79,16 @@ def install_pack(root,config):
         levels.append({'zoom':zoom,'cells':cells})
     atlasdb.close()
     Image.new('RGB',(CELL,CELL),'#d8dce0').save(textures/'czzzzzzzz.png')
+    # Unmapped chunks in a native ocean world are intentionally open sea.
+    ocean_default=bool(config.get('ocean',{}).get('enabled',False))
+    if ocean_default:Image.new('RGB',(CELL,CELL),WATER_COLOUR).save(textures/'czzzzzzzy.png')
     (textures/'frame.png').write_bytes(frame_bytes())
     scripts=bp/'scripts';scripts.mkdir(exist_ok=True)
     base=Path(__file__).resolve().parent
     geo=(ASSETS/'behavior/scripts/geographic.js').read_text(encoding='utf-8').replace('/*MAPCRAFT_CONFIG*/null',json.dumps(asdict(ref),separators=(',',':')))
     (scripts/'geographic.js').write_text(geo,encoding='utf-8')
     loader='' if ref.furniture_baked else "import './regions-loader.js';\n"
-    (scripts/'main.js').write_text(loader+(base/'realmap.js').read_text(encoding='utf-8').replace('/*MAPCRAFT_ATLAS*/null',json.dumps({'sparse':True,'levels':levels},separators=(',',':'))),encoding='utf-8')
+    (scripts/'main.js').write_text(loader+(base/'realmap.js').read_text(encoding='utf-8').replace('/*MAPCRAFT_ATLAS*/null',json.dumps({'sparse':True,'levels':levels,'defaultCell':'zzzzzzzy' if ocean_default else 'zzzzzzzz'},separators=(',',':'))),encoding='utf-8')
     for name in ('arrival.js','treasure.js','beds.js','loot.js','regions-loader.js'):shutil.copyfile(base/name,scripts/name)
     from loot import script as loot_script
     (scripts/'loot-catalogue.js').write_text(loot_script(),encoding='utf-8')
