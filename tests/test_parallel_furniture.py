@@ -1,5 +1,6 @@
 import hashlib
 import gc
+from contextlib import closing
 import json
 from pathlib import Path
 import shutil
@@ -36,7 +37,7 @@ def fixture(root,tiles=4,side=2):
         footprint=(xx>=2)&(xx<=13)&(zz>=2)&(zz<=13)
         indices[footprint&(((y>=10)&(y<=30)&((xx==2)|(xx==13)|(zz==2)|(zz==13)))|np.isin(y,[10,15,20,25,30]))]=1
         blobs.append(encode(bytes([9,1,sy]),[(indices.ravel(),palette)]))
-    with sqlite3.connect(root/'queue.sqlite') as q:
+    with closing(sqlite3.connect(root/'queue.sqlite')) as q:
         q.execute('CREATE TABLE tiles(tx INTEGER,tz INTEGER,state TEXT)')
         for tx in range(tiles):
             q.execute("INSERT INTO tiles VALUES(?,0,'done')",(tx,));chests=[];beds=[]
@@ -49,6 +50,7 @@ def fixture(root,tiles=4,side=2):
                     chests.append(plan);beds.append({k:v for k,v in {**plan,'id':hashlib.sha256(('bed/'+identity).encode()).hexdigest()[:24]}.items() if k not in ('placement','probability')})
             data={'bbox':[34.9,135,35.1,136],'treasure':{'version':3,'plans':chests},'beds':{'version':2,'plans':beds}}
             (root/'tile_data'/f'{tx}_0.json').write_text(json.dumps(data),encoding='utf-8')
+        q.commit()
     db.close()
 
 def values(root):
@@ -92,11 +94,14 @@ class ParallelFurniture(unittest.TestCase):
     def test_failed_install_restores_original_database(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);fixture(root);before=values(root)
-            fresh=root/'fresh';fresh.mkdir();(fresh/'placeholder').write_bytes(b'new')
+            # Exercise a non-canonical spelling even on machines whose temp
+            # directory does not use the RUNNER~1 short name seen in Actions.
+            (root/'staging').mkdir();fresh=root/'staging'/'..'/'fresh'
+            fresh.mkdir();(fresh/'placeholder').write_bytes(b'new')
             import os
             original=os.replace
             def failing(source,target):
-                if Path(source)==fresh:raise OSError('Simulated installation failure')
+                if Path(source).resolve()==fresh.resolve():raise OSError('Simulated installation failure')
                 return original(source,target)
             with patch('parallel_furniture.os.replace',side_effect=failing):
                 with self.assertRaises(OSError):swap_database(root,fresh,{'records':1})
