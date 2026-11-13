@@ -104,7 +104,7 @@ class App:
         self.combo(side,'縮尺',self.scale,list(SCALES))
         self.combo(side,'生成するもの',self.mode,list(MODES))
         ttk.Button(side,text='詳細設定…',command=self.advanced).pack(fill='x',pady=(9,2))
-        ttk.Button(side,text='日本全国を1つのワールドへ…',command=self.open_national).pack(fill='x',pady=(4,2))
+        ttk.Button(side,text='全国・都道府県・地方から出力…',command=self.open_national).pack(fill='x',pady=(4,2))
         self.label(side,'標準設定：山を通常の高さに圧縮。\n建物補完・実際の樹木データは有効。',muted=True,pady=4)
         self.label(side,'保存先',bold=True,pady=(12,4))
         dest=ttk.Frame(side,style='Card.TFrame');dest.pack(fill='x')
@@ -321,7 +321,7 @@ class App:
         self.coordinates.set(', '.join(f'{x:.7f}' for x in self.bbox))
         if not self.running and not self.importing:
             self.status.set(f'選択範囲 {w/1000:.2f} × {h/1000:.2f} km · 生成する版と保存先を確認してください')
-            if w*h>300e6:self.status.set('広域の生成は「日本全国を1つのワールドへ…」で「いま選択した範囲」を選んでください。')
+            if w*h>300e6:self.status.set('広域の生成は「全国・都道府県・地方から出力…」で「いま選択した範囲」を選んでください。')
         if hasattr(self,'canvas'):self.overlay()
 
     def apply_coords(self):
@@ -482,7 +482,7 @@ class App:
             parent=Path(output_text).expanduser().resolve()
             if not ENGINE.exists():raise ValueError('engine/arnis-windows.exe がありません。元のフォルダー構成で起動してください。')
             w,h,bw,bh=dimensions(bbox,scale)
-            if w*h>300e6:raise ValueError('300km²を超える範囲は「日本全国を1つのワールドへ…」の「いま選択した範囲」で分割生成してください。')
+            if w*h>300e6:raise ValueError('300km²を超える範囲は「全国・都道府県・地方から出力…」の「いま選択した範囲」で分割生成してください。')
             if shutil.disk_usage(parent if parent.exists() else BASE).free<2*1024**3:
                 raise ValueError('保存先に2GB以上の空き容量を確保してください。広い範囲ではさらに必要になります。')
             self.job_edition='bedrock' if self.edition.get()=='Windows統合版' else 'java'
@@ -684,6 +684,8 @@ if __name__=='__main__':
             from shapely.geometry import Point
             sea=ocean_area([[(5,-1),(5,11)]],(0,0,10,10))
             report['water_cartography_valid']=sea.covers(Point(2,5)) and not sea.covers(Point(8,5))
+            from regional_scope import PREFECTURES,REGIONS
+            report['regional_menu_valid']=len(PREFECTURES)==47 and sorted(c for _,codes in REGIONS.values() for c in codes)==list(range(1,48))
             report['engine_valid']=hashlib.sha256(ENGINE.read_bytes()).hexdigest()==ENGINE_SHA256
             report['gpu_assets_valid']=all((BASE/name).is_file() for name in ('gpu_driver.py','geology_gpu.ptx'))
             hidden=tk.Tk();hidden.withdraw();report['tk_version']=hidden.tk.call('info','patchlevel');hidden.destroy()
@@ -691,7 +693,7 @@ if __name__=='__main__':
                 'import leveldb,amulet_nbt,osmium,shapely,numpy,PIL;print("runtime-ok")'],capture_output=True,
                 creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),timeout=60)
             report['runtime_valid']=result.returncode==0 and b'runtime-ok' in result.stdout
-            report['ok']=all(report[k] for k in ('catalogue_loaded','hud_loaded','water_cartography_valid','engine_valid','runtime_valid','gpu_assets_valid'))
+            report['ok']=all(report[k] for k in ('catalogue_loaded','hud_loaded','water_cartography_valid','regional_menu_valid','engine_valid','runtime_valid','gpu_assets_valid'))
         except Exception as error:report['error']=str(error)
         destination.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
         sys.exit(0 if report['ok'] else 1)

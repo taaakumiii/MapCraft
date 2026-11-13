@@ -3,7 +3,7 @@
 Runs in the bundled Python 3.12 runtime (Mojang LevelDB has no 3.13 wheel).
 The editable database is a private build output, never an installed play world.
 """
-from contextlib import contextmanager
+from contextlib import contextmanager,closing
 from dataclasses import asdict
 import argparse
 import hashlib
@@ -220,7 +220,19 @@ def read_poly(path):
     if holes:geometry=geometry.difference(unary_union(holes))
     return geometry
 
-def create_project(root,index,scale,poly,bbox=None,spawn=None,treasure=None,tile=TILE,beds=None,geology=None,villagers=None,mobs=None,include_navigation=False,bathymetry=None):
+def grid_tiles(projected,tile,cancel=None):
+    from shapely.geometry import box
+    from shapely.prepared import prep
+    for component in getattr(projected,'geoms',[projected]):
+        if component.is_empty or component.area<=0:continue
+        mask=prep(component);x0,z0,x1,z1=component.bounds
+        for tz in range(math.floor(z0/tile),math.ceil(z1/tile)):
+            if cancel and Path(cancel).exists():raise InterruptedError('区画の計画を中断しました。保存済みデータは保持しています。')
+            for tx in range(math.floor(x0/tile),math.ceil(x1/tile)):
+                if mask.intersects(box(tx*tile,tz*tile,(tx+1)*tile,(tz+1)*tile)):yield tx,tz
+
+
+def create_project(root,index,scale,poly,bbox=None,spawn=None,treasure=None,tile=TILE,beds=None,geology=None,villagers=None,mobs=None,include_navigation=False,bathymetry=None,selection=None):
     from shapely.geometry import box
     from shapely.ops import transform
     from shapely.prepared import prep
@@ -236,15 +248,24 @@ def create_project(root,index,scale,poly,bbox=None,spawn=None,treasure=None,tile
     from bathymetry import options as bathymetry_options
     bathymetry=bathymetry_options(bathymetry)
     if not isinstance(include_navigation,bool):raise ValueError('ミニマップ設定が不正です。')
-    with connect(index) as db:
-        prefectures=[unpacked(row[0]) for row in db.execute('SELECT data FROM prefectures')]
+    with closing(connect(index)) as db:
+        prefectures={code:unpacked(blob) for code,blob in db.execute('SELECT code,data FROM prefectures')}
     coverage=read_poly(poly)
-    if not bbox:
+    scope_selection=None;boundary_source=None
+    if selection is not None:
+        from regional_scope import normalize,coverage as region_coverage
+        scope_selection=normalize(selection)
+        if scope_selection['kind']=='map' and not bbox:raise ValueError('メイン画面で範囲を選択してください。')
+        if scope_selection['kind']!='map':
+            region,boundary_source=region_coverage(scope_selection,prefectures,Path(index).resolve().parent,scale,
+                lambda text:emit('log',text=text),root/'pause.request')
+            coverage=coverage.intersection(region);bbox=None
+    if not bbox and scope_selection is None:
         from shapely.geometry import Polygon,MultiPolygon
         from shapely.ops import unary_union
         if len(prefectures)!=47:raise ValueError('47都道府県の閉じた境界を確認できません。Geofabrikの日本全国PBFを使って索引を作成してください。地域データの場合は「いま選択した範囲」を利用できます。')
         polygons=[]
-        for area in prefectures:
+        for area in prefectures.values():
             outer=unary_union([Polygon(ring) for ring in area['outer']])
             if area['inner']:outer=outer.difference(unary_union([Polygon(ring) for ring in area['inner']]))
             polygons.append(outer.buffer(0))
@@ -261,17 +282,13 @@ def create_project(root,index,scale,poly,bbox=None,spawn=None,treasure=None,tile
     queue=connect(root/'queue.sqlite')
     queue.execute('CREATE TABLE tiles(tx INTEGER,tz INTEGER,state TEXT DEFAULT \'pending\',chunks INTEGER DEFAULT 0,seconds REAL,PRIMARY KEY(tx,tz))')
     total=0
-    for component in getattr(projected,'geoms',[projected]):
-        if component.is_empty or component.area<=0:continue
-        mask=prep(component);x0,z0,x1,z1=component.bounds
-        for tz in range(math.floor(z0/tile),math.ceil(z1/tile)):
-            if (root/'pause.request').exists():queue.close();raise InterruptedError('区画の計画を中止しました。新規作成から再実行できます。')
-            for tx in range(math.floor(x0/tile),math.ceil(x1/tile)):
-                if mask.intersects(box(tx*tile,tz*tile,(tx+1)*tile,(tz+1)*tile)):
-                    cursor=queue.execute('INSERT OR IGNORE INTO tiles(tx,tz) VALUES(?,?)',(tx,tz));total+=cursor.rowcount
-            if tz%50==0:queue.commit();emit('planning',tiles=total)
-    queue.commit();queue.close()
-    scope_mode='region' if bbox else 'national'
+    try:
+        for tx,tz in grid_tiles(projected,tile,root/'pause.request'):
+            cursor=queue.execute('INSERT OR IGNORE INTO tiles(tx,tz) VALUES(?,?)',(tx,tz));total+=cursor.rowcount
+            if total and total%1000==0:queue.commit();emit('planning',tiles=total)
+        queue.commit()
+    finally:queue.close()
+    scope_mode='national' if (scope_selection is None and not bbox) or (scope_selection and scope_selection['kind']=='national') else 'region'
     if scope_mode=='national':spawn=TOKYO_SPAWN
     spawn=spawn or TOKYO_SPAWN
     x,z=forward(*spawn,scale)
@@ -285,9 +302,62 @@ def create_project(root,index,scale,poly,bbox=None,spawn=None,treasure=None,tile
             'scope_mode':scope_mode,'total':total,'created':time.time(),
             'mode':'geo-only','ground_level':64,'fillground':True,'furniture_baked':True,'treasure':treasure or {'enabled':True,'probability':.25},
             'beds':beds or {'enabled':True,'probability':.25},'geology':geology if geology is not None else {'enabled':True},'villagers':villagers,'mobs':mobs,'include_navigation':include_navigation,'bathymetry':bathymetry}
+    if scope_selection:
+        config.update(scope_selection=scope_selection,world_name='MapCraft '+scope_selection['label'])
+        if boundary_source:config.update(boundary_source=boundary_source,ocean={'enabled':True,'depth':60})
     atomic_json(root/'project.json',config)
     emit('planned',tiles=total,chunks=total*(tile//16)**2,project=str(root))
     return config
+
+
+def extend_project(root,selection):
+    """Expand a GUI region project to a containing region without touching chunks."""
+    from regional_scope import normalize,coverage as region_coverage
+    from shapely.ops import transform
+    root=Path(root);config=load_project(root);target=normalize(selection)
+    current=config.get('scope_selection',{})
+    if config.get('active_phase'):raise ValueError('自動拡張で管理中のプロジェクトです。別の保存先で作成してください。')
+    if not current.get('codes') or not target['codes'] or not set(current['codes'])<=set(target['codes']):
+        raise ValueError('既存の都道府県をすべて含む地方、または日本全国を選択してください。')
+    with closing(connect(config['index'])) as source:
+        prefectures={code:unpacked(blob) for code,blob in source.execute('SELECT code,data FROM prefectures')}
+    area,credits=region_coverage(target,prefectures,Path(config['index']).resolve().parent,config['scale'],
+        lambda text:emit('log',text=text),root/'pause.request')
+    area=area.intersection(read_poly(config['scope']))
+    projected=transform(lambda lon,lat,z=None:forward(lat,lon,config['scale']),area)
+    targets=set(grid_tiles(projected,config['tile'],root/'pause.request'));added=0
+    if not targets:raise ValueError('追加できる範囲がありません。')
+    with closing(connect(root/'queue.sqlite')) as db:
+        db.execute('BEGIN IMMEDIATE')
+        for tx,tz in targets:
+            added+=db.execute('INSERT OR IGNORE INTO tiles(tx,tz) VALUES(?,?)',(tx,tz)).rowcount
+        total=db.execute('SELECT COUNT(*) FROM tiles').fetchone()[0];db.commit()
+    west,south,east,north=area.bounds;s,w,n,e=config['bbox']
+    config.update(scope_selection=target,boundary_source=credits,total=total,bbox=[min(s,south),min(w,west),max(n,north),max(e,east)],
+                  world_name='MapCraft '+target['label'],ocean={'enabled':True,'depth':60})
+    atomic_json(root/'project.json',config)
+    emit('extended',tiles=total,added=added,label=target['label'])
+    return config
+
+
+def build_selected(root,data):
+    """Create/resume exactly the chosen region, then export only after completion."""
+    from regional_scope import normalize
+    root=Path(root);selected=normalize(data['selection'])
+    if (root/'project.json').exists():
+        config=load_project(root)
+        if config.get('scope_selection')!=selected or config['scale']!=data['scale']:
+            raise ValueError('選択範囲・縮尺と保存先のプロジェクトが異なります。別の保存先を選ぶか「選択範囲へ拡張」を実行してください。')
+        if selected['kind']=='map' and list(config['bbox'])!=list(data.get('bbox') or []):raise ValueError('保存先と選択した地図の範囲が異なります。')
+    else:
+        config=create_project(root,**{key:data[key] for key in ('index','scale','poly','selection')},
+            **{key:data[key] for key in ('bbox','spawn','treasure','beds','geology','villagers','mobs','bathymetry','include_navigation') if key in data})
+    run_tiles(root,0)
+    with closing(connect(root/'queue.sqlite')) as db:
+        remaining=db.execute("SELECT COUNT(*) FROM tiles WHERE state!='done'").fetchone()[0]
+    if remaining or (root/'pause.request').exists():
+        emit('log',text='区画を保存して一時停止しました。再開すると残りを生成後に出力します。');return
+    export_world(root,data['destination'])
 
 def load_project(root):
     return project_info(root)
@@ -493,6 +563,13 @@ def export_world(root,destination):
     if not status(root)['completed']:raise ValueError('まず1区画以上を生成してください。')
     configure_spawn(root,config)
     from bathymetry_backend import ensure_project_bathymetry
+    if config.get('world_name'):
+        import amulet_nbt as nbt
+        level=root/'world/level.dat';raw=level.read_bytes();tag=nbt.load(raw[8:],compressed=False,little_endian=True)
+        if str(tag.compound.get('LevelName',''))!=config['world_name']:
+            tag.compound['LevelName']=nbt.StringTag(config['world_name']);body=tag.save_to(compressed=False,little_endian=True)
+            temporary=level.with_name('level.dat.region-name');temporary.write_bytes(raw[:4]+struct.pack('<I',len(body))+body);os.replace(temporary,level)
+        (root/'world/levelname.txt').write_text(config['world_name'],encoding='utf-8')
     ensure_project_bathymetry(root,lambda text:emit('log',text=text))
     from furniture_backend import ensure_project_furniture
     ensure_project_furniture(root,lambda text:emit('log',text=text));config=load_project(root)
@@ -509,6 +586,9 @@ def export_world(root,destination):
     ensure_project_ecology(root,lambda text:emit('log',text=text))
     from ocean_backend import ensure_project_ocean
     ensure_project_ocean(root,lambda text:emit('log',text=text))
+    if config.get('boundary_source'):
+        atomic_json(root/'world/mapcraft_boundary_source.json',config['boundary_source'])
+        (root/'world/BOUNDARY-CREDITS.txt').write_text('国土交通省 国土数値情報 行政区域 N03 2026 / CC BY 4.0\n'+config['boundary_source']['url']+'\n陸地を全国共通座標へ投影し、約500mの沿岸を追加しています。\n',encoding='utf-8')
     destination=Path(destination);temporary=destination.with_suffix('.exporting')
     try:
         with zipfile.ZipFile(temporary,'w',zipfile.ZIP_DEFLATED,allowZip64=True) as archive:
@@ -521,14 +601,25 @@ def export_world(root,destination):
     emit('exported',path=str(destination),**status(root))
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('action',choices=['index','create','run','status','export']);parser.add_argument('--request',required=True)
+    parser=argparse.ArgumentParser();parser.add_argument('action',choices=['index','create','extend','build','run','status','export']);parser.add_argument('--request',required=True)
     args=parser.parse_args();data=json.loads(Path(args.request).read_text(encoding='utf-8'))
     if args.action=='index':
         # Also serialize indexes shared by different project windows.
         with project_lock(Path(data['index']).resolve().parent):index_pbf(data['source'],data['index'],Path(data['project'])/'pause.request')
         return
     with project_lock(data['project']):
-        if args.action=='create':create_project(data['project'],data['index'],data['scale'],data['poly'],data.get('bbox'),data.get('spawn'),data.get('treasure'),beds=data.get('beds'),geology=data.get('geology'),villagers=data.get('villagers'),mobs=data.get('mobs'),include_navigation=data.get('include_navigation',False),bathymetry=data.get('bathymetry'))
+        if data.get('gui') and args.action!='status':
+            existing=Path(data['project'])/'project.json'
+            if existing.exists() and load_project(data['project']).get('active_phase'):
+                raise ValueError('このプロジェクトは自動拡張で管理中です。別の保存先で地域ワールドを作成してください。')
+            pause=Path(data['project'])/'pause.request'
+            if pause.exists() and args.action in ('create','extend','build','run'):
+                marker=pause.read_text(encoding='utf-8')
+                if marker=='pause' or marker.startswith('MapCraft GUI pause: '):pause.unlink()
+                else:raise ValueError('別の処理による停止要求があるため保持しました。対象の処理から再開してください。')
+        if args.action=='create':create_project(data['project'],data['index'],data['scale'],data['poly'],data.get('bbox'),data.get('spawn'),data.get('treasure'),beds=data.get('beds'),geology=data.get('geology'),villagers=data.get('villagers'),mobs=data.get('mobs'),include_navigation=data.get('include_navigation',False),bathymetry=data.get('bathymetry'),selection=data.get('selection'))
+        elif args.action=='extend':extend_project(data['project'],data['selection'])
+        elif args.action=='build':build_selected(data['project'],data)
         elif args.action=='run':run_tiles(data['project'],data.get('limit',0),data.get('near'))
         elif args.action=='status':emit('status',**status(data['project']))
         elif args.action=='export':export_world(data['project'],data['destination'])

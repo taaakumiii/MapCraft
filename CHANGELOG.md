@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.0-preview
+
+- Add Japan, 47 prefectures, eight regions and map-selection output menus, distinct suggested project paths, and a resumable generate-then-export action.
+- Use cached MLIT N03 2026 land polygons and an approximately 500m coastal fringe, including islands; connect unmapped space with native lightweight ocean.
+- Expand a prefecture project to a containing region or Japan while preserving its map ID, coordinates, spawn, completed chunks and gameplay journals.
+- Preserve externally owned pause markers and prevent the GUI from taking over an active or automatically managed project.
+
 ## 0.19.2-preview
 
 - Render offline minimap seas from directed OSM coastlines, and use a clear blue for seas, rivers, lakes and reservoirs. Preserve islands in water multipolygons and leave incomplete coastlines unfilled.

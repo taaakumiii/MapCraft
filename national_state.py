@@ -75,6 +75,21 @@ def index_busy(path):
     except OSError:return True
     return False
 
+
+def project_busy(root):
+    """Probe only an existing writer lock; never create a project by viewing it."""
+    import msvcrt
+    lock=Path(root)/'builder.lock'
+    if not lock.is_file():return False
+    try:
+        with lock.open('r+b') as stream:
+            stream.seek(0)
+            try:msvcrt.locking(stream.fileno(),msvcrt.LK_NBLCK,1)
+            except OSError:return True
+            stream.seek(0);msvcrt.locking(stream.fileno(),msvcrt.LK_UNLCK,1)
+    except OSError:return True
+    return False
+
 def external_index_progress(base,index):
     """Read the bounded tail of this creator's detached index job, if it matches."""
     base=Path(base)
