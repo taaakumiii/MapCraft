@@ -11,7 +11,7 @@ LABELS={'idle':'未登録','running':'実行中','starting':'起動中','pausing
 
 class GenerationStatusWindow:
     def __init__(self,app,base):
-        self.app=app;self.base=base;self.closed=False;self.busy=False;self.pending=False
+        self.app=app;self.base=base;self.closed=False;self.busy=False;self.pending=False;self.operation_error=None
         self.pool=ThreadPoolExecutor(max_workers=1);self.events=queue.Queue();self.job='current'
         self.window=tk.Toplevel(app.root);self.window.title('MapCraft — 生成状況・一時停止・再開')
         self.window.geometry('830x660');self.window.minsize(750,580);self.window.configure(bg='#192938')
@@ -35,7 +35,7 @@ class GenerationStatusWindow:
 
     def choose(self,event=None):
         index=self.combo.current()
-        if 0<=index<len(self.jobs):self.job=self.jobs[index]['id'];self.refresh()
+        if 0<=index<len(self.jobs):self.job=self.jobs[index]['id'];self.operation_error=None;self.refresh()
 
     def refresh(self):
         if self.closed or self.pending or self.busy:return
@@ -47,7 +47,7 @@ class GenerationStatusWindow:
 
     def action(self,action):
         if self.busy:return
-        self.busy=True
+        self.busy=True;self.operation_error=None
         for button in (self.pause_button,self.resume_button):button.configure(state='disabled')
         self.safety.set('保存後の停止を要求しています…' if action=='pause' else '保存済み設定で再開しています…')
         def work():
@@ -57,10 +57,12 @@ class GenerationStatusWindow:
         self.pool.submit(work)
 
     def show(self,result):
+        self.last_result=result
         status=result['status'];self.title.set(result['title']+' — '+LABELS.get(status,status))
         self.safety.set('書き込み処理は終了しています。PCをシャットダウンできます。' if result.get('safe_to_shutdown') else
                         '保存単位の完了・処理終了を待っています。' if status=='pausing' else
                         '生成はバックグラウンドで実行中です。' if status=='running' else '停止した処理は「再開」で続けられます。')
+        if self.operation_error:self.safety.set('操作できませんでした：'+self.operation_error)
         lines=[]
         for key,label in (('terrain','地形'),('navigation','実地図ミニマップ')):
             progress=result.get(key)
@@ -73,6 +75,8 @@ class GenerationStatusWindow:
         for task in result['tasks']:
             lines+=['',task['title']+'：'+('実行中' if task['alive'] else LABELS.get(task['status'],task['status']))]
             if task.get('error'):lines+=['記録されたエラー：'+task['error']]
+            if task.get('stop_reason'):lines+=['停止理由：'+task['stop_reason']]
+        if self.operation_error or result.get('control_error'):lines+=['','直前の操作エラー：'+(self.operation_error or result['control_error'])]
         lines+=['','地形100%は全工程の完了を意味しません。仕上げ・圧縮出力・完成版の別保存が続きます。']
         self.details.configure(state='normal');self.details.delete('1.0','end');self.details.insert('1.0','\n'.join(lines));self.details.configure(state='disabled')
         self.pause_button.configure(state='normal' if status in ('running','starting') else 'disabled')
@@ -89,7 +93,10 @@ class GenerationStatusWindow:
                         if item['id']==self.job:self.combo.current(i)
                     self.show(result)
                 elif kind=='action':self.busy=False;self.show(value)
-                elif kind=='error':self.busy=False;self.safety.set(value)
+                elif kind=='error':
+                    self.busy=False;self.operation_error=value
+                    if hasattr(self,'last_result'):self.show(self.last_result)
+                    else:self.safety.set(value)
         except queue.Empty:pass
         self.refresh();self.timer=self.window.after(2000,self.poll)
 

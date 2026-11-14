@@ -76,5 +76,56 @@ class ManagedControls(unittest.TestCase):
                 c.pause(base);c.resume(base);self.assertEqual(launch.call_count,1)
                 saved=c.read(c.manifest_path(base));self.assertEqual(saved['tasks'][0]['pid'],1);self.assertEqual(saved['tasks'][1]['pid'],999)
 
+    def test_reboot_during_export_resumes_without_deleting_phase_barrier(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base,root,record=self.fixture(folder)
+            config=c.read(root/'project.json');config['active_phase']={'id':'tokyo','complete':True};c.write(root/'project.json',config)
+            record['tasks'][0]['phase']='tokyo';record['pause_marker']='MapCraft managed pause: obsolete'
+            record['previous_pause_marker']='MapCraft phase export: tokyo';c.write(c.manifest_path(base),record)
+            c.write(base/'自動生成/test-state.json',{'status':'running'})
+            marker=root/'pause.request';marker.write_text('MapCraft phase export: tokyo');before=marker.read_bytes()
+            identity=lambda pid: {'creation_ticks':2,'image':record['tasks'][0]['runtime']} if pid==999 else None
+            with patch.object(c,'process_identity',side_effect=identity),patch.object(c.subprocess,'Popen',return_value=Mock(pid=999)) as launch:
+                self.assertEqual(c.snapshot(base)['tasks'][0]['status'],'interrupted')
+                result=c.resume(base);self.assertEqual(result['status'],'running');self.assertEqual(launch.call_count,1)
+                self.assertEqual(marker.read_bytes(),before)
+
+    def test_different_region_barrier_and_active_writer_still_block_resume(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base,root,record=self.fixture(folder)
+            config=c.read(root/'project.json');config['active_phase']={'id':'tokyo'};c.write(root/'project.json',config)
+            record['tasks'][0]['phase']='tokyo';c.write(c.manifest_path(base),record)
+            marker=root/'pause.request';marker.write_text('MapCraft phase export: another-region')
+            with patch.object(c,'process_identity',return_value=None),patch.object(c.subprocess,'Popen') as launch:
+                with self.assertRaises(RuntimeError):c.resume(base)
+                self.assertEqual(marker.read_text(),'MapCraft phase export: another-region')
+                marker.write_text('MapCraft phase export: tokyo')
+                with patch.object(c,'locks_free',return_value=False):
+                    with self.assertRaises(RuntimeError):c.resume(base)
+                launch.assert_not_called()
+
+    def test_reboot_after_handoff_uses_new_phase_and_skips_finished_predecessor(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base,root,record=self.fixture(folder)
+            config=c.read(root/'project.json');config['active_phase']={'id':'kanto'};c.write(root/'project.json',config)
+            record['tasks'][0]['phase']='tokyo';record['previous_pause_marker']='MapCraft phase export: tokyo'
+            second={**record['tasks'][0],'id':'kanto','phase':'kanto','state_file':'next-state.json'}
+            record['tasks'].append(second);c.write(c.manifest_path(base),record)
+            c.write(base/'自動生成/test-state.json',{'status':'complete'});c.write(base/'自動生成/next-state.json',{'status':'running'})
+            marker=root/'pause.request';marker.write_text('MapCraft phase export: kanto')
+            identity=lambda pid: {'creation_ticks':2,'image':second['runtime']} if pid==999 else None
+            with patch.object(c,'process_identity',side_effect=identity),patch.object(c.subprocess,'Popen',return_value=Mock(pid=999)) as launch:
+                c.resume(base);self.assertEqual(launch.call_count,1);self.assertEqual(marker.read_text(),'MapCraft phase export: kanto')
+
+    def test_normal_pause_is_a_reason_not_a_generation_error(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base,root,record=self.fixture(folder)
+            reason='一時停止しました。MapCraftから再開できます。'
+            c.write(base/'自動生成/test-state.json',{'status':'paused','error':reason})
+            with patch.object(c,'process_identity',return_value=None):task=c.snapshot(base)['tasks'][0]
+            self.assertIsNone(task['error']);self.assertEqual(task['stop_reason'],reason)
+            c.write(base/'自動生成/test-state.json',{'status':'running','error':reason})
+            with patch.object(c,'process_identity',return_value=None):self.assertIsNone(c.snapshot(base)['tasks'][0]['error'])
+
 
 if __name__=='__main__':unittest.main()

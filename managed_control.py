@@ -91,7 +91,7 @@ def validate(base,record):
     project=Path(record['project']).resolve();config=read(project/'project.json',{})
     if record.get('map_id') and config.get('map_id')!=record['map_id']:raise ValueError('生成ワールドのIDが変わっているため再開を保留しました。')
     for task in record['tasks']:
-        if Path(task['runtime']).resolve()!=base/'engine/national-runtime/python.exe':raise ValueError('生成用Pythonが一致しません。')
+        if Path(task['runtime']).resolve()!=base/'engine/national-runtime/python.exe' or not Path(task['runtime']).is_file():raise ValueError('生成用Pythonが見つからないか、一致しません。')
         program=Path(task['program']).resolve()
         if not program.is_relative_to(base) or program.suffix!='.py' or not program.is_file():raise ValueError('再開用プログラムが見つかりません。')
         if not isinstance(task.get('args'),list) or not all(isinstance(v,str) for v in task['args']):raise ValueError('再開設定が不正です。')
@@ -127,6 +127,18 @@ def locks_free(base,record):
     return not any(project_busy(folder) for folder in (record['project'],Path(base)/'自動生成',Path(base)/'自動生成/phase-controller'))
 
 
+def owns_phase_export(project,record,marker):
+    """A phase-export barrier is resumable after a reboot, not a user pause.
+
+    Call only after validating the world ID and confirming that every recorded
+    worker has exited and the writer locks are free. Preserve the barrier:
+    continuation controllers themselves consume it when changing regions.
+    """
+    phase=read(Path(project)/'project.json',{}).get('active_phase',{}).get('id')
+    return bool(phase and marker=='MapCraft phase export: '+phase and
+                any(task.get('phase')==phase for task in record['tasks']))
+
+
 def resume(base,job='current'):
     base=Path(base).resolve()
     with control_lock(base,job):
@@ -139,12 +151,16 @@ def resume(base,job='current'):
         root_marker=project/'pause.request'
         if root_marker.exists():
             actual=root_marker.read_text(encoding='utf-8').strip()
-            if actual!=record.get('pause_marker'):raise RuntimeError('別の停止要求があるため保持しました。状態を確認してください。')
-            previous=record.get('previous_pause_marker')
-            if previous is None:root_marker.unlink()
-            else:root_marker.write_text(previous,encoding='utf-8')
+            if actual==record.get('pause_marker'):
+                previous=record.get('previous_pause_marker')
+                if previous is None:root_marker.unlink()
+                else:root_marker.write_text(previous,encoding='utf-8')
+            elif not owns_phase_export(project,record,actual):
+                raise RuntimeError('別の停止要求があるため保持しました。状態を確認してください。')
+            # An interrupted exporter already has its original phase barrier.
+            # Keep it exactly as written so the saved continuation can resume.
         pause_path(base,job).unlink(missing_ok=True)
-        record.update(status='starting',resumed_at=now(),map_id=read(project/'project.json',{}).get('map_id'))
+        record.update(status='starting',resumed_at=now(),error=None,map_id=read(project/'project.json',{}).get('map_id'))
         write(path,record)
         launched=[]
         try:
@@ -182,15 +198,20 @@ def snapshot(base,job='current'):
     project=Path(record['project']);tasks=[]
     for task in record['tasks']:
         state=read(base/'自動生成'/task['state_file'],{})
-        tasks.append({'id':task['id'],'title':task['title'],'alive':alive(task),'status':state.get('status','unknown'),
+        live=alive(task);saved_status=state.get('status','unknown');error=state.get('error')
+        stopped=saved_status=='paused'
+        if error and str(error).startswith('一時停止しました。'):error=None
+        status='interrupted' if not live and saved_status in ('running','starting','waiting','retrying') else saved_status
+        tasks.append({'id':task['id'],'title':task['title'],'alive':live,'status':status,'recorded_status':saved_status,
                       'stage':state.get('last_event',{}).get('text') or state.get('stage',''),'updated':state.get('updated'),
-                      'error':state.get('error'),'pid':task.get('pid')})
+                      'error':None if stopped else error,'stop_reason':state.get('error') if stopped else None,'pid':task.get('pid')})
     active=any(t['alive'] for t in tasks);complete=all(t['status']=='complete' for t in tasks)
     held=pause_path(base,job).exists() or record.get('status') in ('pausing','paused')
     status='pausing' if active and held else 'running' if active else 'complete' if complete else 'paused' if held else 'interrupted'
     free=not active and locks_free(base,record)
     result={'status':status,'title':record.get('title',read(project/'project.json',{}).get('world_name',project.name)),
             'project':str(project),'tasks':tasks,'safe_to_shutdown':free,'can_resume':free and not complete,
+            'control_error':record.get('error'),
             'updated':max((str(t['updated']) for t in tasks if t['updated']),default=record.get('paused_at',''))}
     for file,query,label in [('queue.sqlite',"SELECT COUNT(*),SUM(state='done') FROM tiles",'terrain'),
                               ('atlas.sqlite','SELECT COUNT(*) FROM rendered WHERE style=2','navigation')]:
@@ -199,7 +220,7 @@ def snapshot(base,job='current'):
             result[label]={'total':row[0],'completed':row[1] or 0} if label=='terrain' else {'completed':row[0]}
         except (OSError,sqlite3.Error):pass
     config=read(project/'project.json',{});phase=config.get('active_phase',{})
-    if phase:result.setdefault('terrain',{})['total']=phase['total']
+    if phase.get('total') is not None:result.setdefault('terrain',{})['total']=phase['total']
     if 'navigation' in result:result['navigation']['total']=result.get('terrain',{}).get('completed',0)
     main=read(base/'自動生成/進捗.json',{}) if job=='current' else read(base/'自動生成'/record['tasks'][0]['state_file'],{})
     result['current_step']=main.get('last_event',{}).get('text') or main.get('stage','')

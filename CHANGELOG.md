@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.21.1-preview
+
+- Resume a registered regional exporter after a PC reboot while preserving its own phase-export barrier. Continue rejecting foreign pause markers, changed world IDs and active writer locks.
+- Show dead workers as interrupted instead of running; show normal pause reasons separately from errors and retain failed-operation messages across automatic status refreshes.
+
 ## 0.21.0-preview
 
 - Add persistent generation status, checkpoint pause and detached resume controls to the main window, including jobs started before closing/restarting the GUI.
