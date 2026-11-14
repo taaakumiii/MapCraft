@@ -30,6 +30,8 @@ def digest(path):
     with Path(path).open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()
 
 def validate_request(request):
+    if request.get('cancelled'):raise InterruptedError('この継続処理は取り消されています。')
+    if not isinstance(request.get('stop_after_snapshot',False),bool):raise ValueError('完成版別保存後の停止設定が不正です。')
     base=Path(request['base']).resolve();root=Path(request['project']).resolve();snapshot=Path(request['snapshot']).resolve()
     if root==base or not root.is_relative_to(base):raise ValueError('作成用プロジェクトが指定フォルダー外です。')
     if not snapshot.is_relative_to(base/'完成ワールド') or snapshot.suffix!='.mcworld':raise ValueError('プレイ用保存先が不正です。')
@@ -154,6 +156,9 @@ class Continuation:
             self.save(status='saving_snapshot',stage='全要素を反映した地域完成版を検証して別保存')
             saved=freeze_archive(source,self.snapshot,request,lambda message:self.save(stage=message))
             self.save(snapshot=saved,status='snapshot_saved',stage='地域完成版の別保存・整合性確認が完了')
+        if request.get('stop_after_snapshot'):
+            self.save(status='complete',stage='完成ワールドへ別保存して終了（追加地域の生成なし）',output=saved['path'],snapshot=saved,error=None)
+            return
         with closing(n.connect(self.root/'queue.sqlite')) as queue:
             completed={tuple(row) for row in queue.execute("SELECT tx,tz FROM tiles WHERE state='done'")}
         if not completed<={tuple(t) for t in self.plan['tiles']}:raise ValueError('計画外の生成済み区画を保持して停止します。')

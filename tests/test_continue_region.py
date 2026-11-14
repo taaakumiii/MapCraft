@@ -106,4 +106,23 @@ class ContinueRegion(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'簡易海'):c.freeze_archive(main['output'],request['snapshot'],request)
             self.assertFalse(Path(request['snapshot']).exists())
 
+    def test_snapshot_only_preserves_project_and_queue_without_starting_expansion(self):
+        with tempfile.TemporaryDirectory() as folder:
+            request,root,main=self.fixture(folder);request['stop_after_snapshot']=True
+            before=(root/'project.json').read_bytes();marker=root/'pause.request';marker.write_text('MapCraft phase export: wards')
+            with closing(sqlite3.connect(root/'queue.sqlite')) as db:rows=db.execute('SELECT * FROM tiles ORDER BY tx').fetchall()
+            with patch.object(c,'arm_phase') as arm,patch.object(c.PhaseFinish,'generate') as generate:
+                job=c.Continuation(request);job.run(once=True)
+                self.assertEqual(job.state['status'],'complete');self.assertTrue(Path(request['snapshot']).exists())
+                self.assertEqual(c.digest(request['snapshot']),c.digest(main['output']))
+                self.assertEqual((root/'project.json').read_bytes(),before);self.assertEqual(marker.read_text(),'MapCraft phase export: wards')
+                with closing(sqlite3.connect(root/'queue.sqlite')) as db:self.assertEqual(db.execute('SELECT * FROM tiles ORDER BY tx').fetchall(),rows)
+                job.transition(main);arm.assert_not_called();generate.assert_not_called()
+
+    def test_cancelled_continuation_cannot_be_relaunched(self):
+        with tempfile.TemporaryDirectory() as folder:
+            request,root,main=self.fixture(folder);request['cancelled']=True
+            with self.assertRaises(InterruptedError):c.Continuation(request)
+            self.assertFalse(Path(request['snapshot']).exists())
+
 if __name__=='__main__':unittest.main()
