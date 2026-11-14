@@ -134,6 +134,9 @@ class Continuation:
         self.state.update(pid=os.getpid(),request_id=request['request_id'],map_id=request['map_id'],phase=request['phase'])
     def save(self,**values):
         self.state.update(values,updated=datetime.now().astimezone().isoformat());n.atomic_json(self.marker,self.state)
+        if self.state.get('status')!='paused':
+            from managed_control import checkpoint
+            checkpoint(self.root)
     def capacity(self,additional=0):
         world_bytes=folder_bytes(self.root/'world');reserve=world_bytes+additional+4*1024**3
         if folder_bytes(self.base)+reserve>self.request['budget_bytes'] or shutil.disk_usage(self.base).free<reserve:
@@ -189,6 +192,8 @@ class Continuation:
         with n.project_lock(self.control/controller):
             self.save(status='waiting',stage=request.get('from_title',request['from_phase'])+'の全要素・最終出力の完了待ち',planned_total=self.plan['total'],planned_additional=self.plan['additional'],snapshot_path=str(self.snapshot),ocean=request.get('ocean',{'enabled':False}))
             while True:
+                from managed_control import checkpoint
+                checkpoint(self.root)
                 main=read(self.control/'進捗.json')
                 resumable=self.state.get('snapshot') and main.get('phase')==request['phase'] and main.get('status') not in ('complete',)
                 if ready(request,main) or resumable:

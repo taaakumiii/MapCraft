@@ -14,6 +14,7 @@ def install_pack(root,config):
     from tracking import MapReference
     from realmap import prepare_map,hud_document,CELL,code,frame_bytes
     from map_water import RENDER_STYLE,WATER_COLOUR
+    from managed_control import checkpoint
     from nativepack import ASSETS,VERSION
     from beds import compile_beds
     from treasure import compile_treasure
@@ -34,6 +35,7 @@ def install_pack(root,config):
     regions=scripts/'regions';regions.mkdir(exist_ok=True);region_keys=[];generated_bounds=[]
     with connect(config['index']) as source,connect(root/'queue.sqlite') as queue:
         for tx,tz in queue.execute("SELECT tx,tz FROM tiles WHERE state='done' ORDER BY tz,tx"):
+            checkpoint(root)
             tile_path=root/'tile_data'/f'{tx}_{tz}.json'
             tile=json.loads(tile_path.read_text(encoding='utf-8'))
             bbox=tile['bbox'];s,w,n,e=bbox;generated_bounds.append(bbox)
@@ -78,6 +80,7 @@ def install_pack(root,config):
         cells={f'{x},{y}':cell_code(ident) for ident,x,y in atlasdb.execute('SELECT id,x,y FROM cells WHERE zoom=?',(zoom,))}
         levels.append({'zoom':zoom,'cells':cells})
     atlasdb.close()
+    checkpoint(root)
     Image.new('RGB',(CELL,CELL),'#d8dce0').save(textures/'czzzzzzzz.png')
     # Unmapped chunks in a native ocean world are intentionally open sea.
     ocean_default=bool(config.get('ocean',{}).get('enabled',False))

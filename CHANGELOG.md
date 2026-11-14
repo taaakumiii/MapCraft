@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.0-preview
+
+- Add persistent generation status, checkpoint pause and detached resume controls to the main window, including jobs started before closing/restarting the GUI.
+- Keep replayable requests and process creation identities; preserve externally owned pause markers, reject a changed world ID and prevent duplicate workers.
+- Pause regional finalization and navigation after durable checkpoints, and retain the Tokyo completion snapshot / Kanto expansion sequence across restarts.
+
 ## 0.20.0-preview
 
 - Add Japan, 47 prefectures, eight regions and map-selection output menus, distinct suggested project paths, and a resumable generate-then-export action.

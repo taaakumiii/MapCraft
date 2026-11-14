@@ -46,6 +46,7 @@ class App:
         self.last_folder = None; self.last_world = None; self.job_edition = 'bedrock'; self.importing = False
         self.navigator=None;self.navigation_source=None
         self.national_window=None
+        self.status_window=None
         self.resize_timer = None; self.drag_start = None; self.current_view = None
         self.status = tk.StringVar(value='地名・駅名・住所を検索して、地図上で生成範囲を指定してください')
         self.search_query=tk.StringVar();self.search_choice=tk.StringVar()
@@ -94,6 +95,7 @@ class App:
         top = tk.Frame(self.root, bg=BG); top.pack(fill='x', padx=24, pady=(17,12))
         tk.Label(top, text='MAP CRAFT', font=('Segoe UI',23,'bold'), fg=FG,bg=BG).pack(side='left')
         tk.Label(top, text='日本の街並みを検索して、ワールドへ。', fg=MUTED,bg=BG).pack(side='left',padx=20)
+        ttk.Button(top,text='生成状況・一時停止・再開…',command=self.open_generation_status).pack(side='right')
         main=ttk.Frame(self.root); main.pack(fill='both',expand=True,padx=20)
         side=ttk.Frame(main,style='Card.TFrame',padding=16,width=340); side.pack(side='left',fill='y',padx=(0,14)); side.pack_propagate(False)
         self.label(side,'出力設定',bold=True)
@@ -243,6 +245,11 @@ class App:
             self.national_window.window.lift();return
         from national_ui import NationalWindow
         self.national_window=NationalWindow(self,BASE)
+
+    def open_generation_status(self):
+        if self.status_window:self.status_window.window.lift();return
+        from generation_status_ui import GenerationStatusWindow
+        self.status_window=GenerationStatusWindow(self,BASE)
 
     def treasure_options(self):
         try:probability=float(self.treasure_probability.get())
@@ -661,6 +668,8 @@ class App:
         threading.Thread(target=copy,daemon=True).start()
 
     def close(self):
+        if self.status_window and self.status_window.busy:
+            messagebox.showinfo('操作中です','一時停止・再開の操作完了までお待ちください。');return
         if self.national_window and self.national_window.busy:
             self.national_window.close();return
         if self.importing:
@@ -686,6 +695,8 @@ if __name__=='__main__':
             report['water_cartography_valid']=sea.covers(Point(2,5)) and not sea.covers(Point(8,5))
             from regional_scope import PREFECTURES,REGIONS
             report['regional_menu_valid']=len(PREFECTURES)==47 and sorted(c for _,codes in REGIONS.values() for c in codes)==list(range(1,48))
+            import managed_control
+            report['generation_controls_valid']=managed_control.process_identity(os.getpid()) is not None
             report['engine_valid']=hashlib.sha256(ENGINE.read_bytes()).hexdigest()==ENGINE_SHA256
             report['gpu_assets_valid']=all((BASE/name).is_file() for name in ('gpu_driver.py','geology_gpu.ptx'))
             hidden=tk.Tk();hidden.withdraw();report['tk_version']=hidden.tk.call('info','patchlevel');hidden.destroy()
@@ -693,7 +704,7 @@ if __name__=='__main__':
                 'import leveldb,amulet_nbt,osmium,shapely,numpy,PIL;print("runtime-ok")'],capture_output=True,
                 creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),timeout=60)
             report['runtime_valid']=result.returncode==0 and b'runtime-ok' in result.stdout
-            report['ok']=all(report[k] for k in ('catalogue_loaded','hud_loaded','water_cartography_valid','regional_menu_valid','engine_valid','runtime_valid','gpu_assets_valid'))
+            report['ok']=all(report[k] for k in ('catalogue_loaded','hud_loaded','water_cartography_valid','regional_menu_valid','generation_controls_valid','engine_valid','runtime_valid','gpu_assets_valid'))
         except Exception as error:report['error']=str(error)
         destination.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
         sys.exit(0 if report['ok'] else 1)

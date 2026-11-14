@@ -86,6 +86,8 @@ class PhaseFinish:
         with (self.control/'実行.log').open('a',encoding='utf-8') as stream:
             stream.write(json.dumps({'time':time.time(),'event':kind,**values},ensure_ascii=False)+'\n')
         self.save(last_event={'event':kind,**values})
+        from managed_control import checkpoint
+        checkpoint(self.root)
 
     def finish(self):
         self.owns_world=True;ctypes.windll.kernel32.SetThreadExecutionState(0x80000001)
@@ -111,6 +113,7 @@ class PhaseFinish:
                 self.output.parent.mkdir(exist_ok=True);n.export_world(self.root,self.output)
                 self.save(status='complete',stage='地域ワールドの出力完了・ここで区切り',error=None)
                 return
+            except InterruptedError:raise
             except Exception as error:
                 self.save(status='retrying',error=str(error),attempt=attempt)
                 if attempt==5:raise

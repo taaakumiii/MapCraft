@@ -198,14 +198,26 @@ class NationalWindow:
         if action=='build':Path(data['destination']).parent.mkdir(parents=True,exist_ok=True)
         requests=self.base/'national_data/requests';requests.mkdir(parents=True,exist_ok=True)
         request=requests/(str(uuid.uuid4())+'.json');request.write_text(json.dumps(data,ensure_ascii=False),encoding='utf-8')
+        self.managed_job=None
+        if action!='status':
+            from managed_control import register
+            try:self.managed_job,self.managed_task=register(self.base,self.active_project,runtime,action,data)
+            except Exception as error:self.message.set(str(error));self.write(str(error));return
         self.busy=True;self.action=action;self.last_export=None
         for button in self.buttons:button.configure(state='disabled')
         for combo in (self.scope_combo,self.name_combo,self.scale_combo):combo.configure(state='disabled')
         self.pause_button.configure(state='normal' if action in ('run','index','create','extend','build') else 'disabled',text='現在の区画後に一時停止' if action in ('run','build') else '処理を中断');self.message.set('処理中… ログに進捗を表示します。')
         def worker():
             try:
-                args=[str(runtime),str(self.base/'national_backend.py'),action,'--request',str(request)]
+                args=([str(runtime),self.managed_task['program'],*self.managed_task['args']] if self.managed_job else
+                      [str(runtime),str(self.base/'national_backend.py'),action,'--request',str(request)])
                 self.process=subprocess.Popen(args,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),cwd=str(self.base))
+                if self.managed_job:
+                    from managed_control import control_lock,read,write,manifest_path,process_identity
+                    with control_lock(self.base,self.managed_job):
+                        record=read(manifest_path(self.base,self.managed_job));identity=process_identity(self.process.pid)
+                        record['tasks'][0].update(pid=self.process.pid,**({'creation_ticks':identity['creation_ticks']} if identity else {}))
+                        record['status']='running';write(manifest_path(self.base,self.managed_job),record)
                 for raw in self.process.stdout:
                     line=raw.decode('utf-8',errors='replace')
                     try:event=json.loads(line)
@@ -219,6 +231,12 @@ class NationalWindow:
 
     def pause(self):
         if not self.busy:return
+        if self.managed_job:
+            from managed_control import pause
+            try:pause(self.base,self.managed_job)
+            except Exception as error:self.message.set(str(error));return
+            self.message.set('安全な保存単位の完了後に停止します。再開は「生成状況・一時停止・再開」から行えます。')
+            self.pause_button.configure(state='disabled');return
         self.pause_file.parent.mkdir(parents=True,exist_ok=True)
         try:
             with self.pause_file.open('x',encoding='ascii') as stream:stream.write('MapCraft GUI pause: '+str(uuid.uuid4()))
